@@ -4,10 +4,8 @@ import casadi as cs
 import time
 import model
 
-### TODO: La dinamica va inserita come vincolo?
-
 # initialization
-mod = model.Pendubot()
+mod = model.CartPendulum()
 Δ = 0.01
 n, m = mod.n, mod.m
 N = 100
@@ -24,86 +22,46 @@ elif mod.name == "pendubot":
 elif mod.name == "uav":
     x_ter = np.array((1, 1, 0, 0, 0, 0))
 
+
 # symbolic variables
 opt = cs.Opti()
 X = opt.variable(n)
 U = opt.variable(m)
 
-# constraints su cart pendulum
-u_min = -10
-u_max = 10
+# constraints
+h_ = lambda x, u: mod.constraints(x, u)
+h_dim = mod.constraints(X, U).shape[0]
+h = cs.Function("h", [X, U], [mod.constraints(X, U)], {"post_expand": True})
 
-h_ = lambda x, u: cs.vertcat([x[:, -1] - x_ter, cs.fmax(cs.fmin(u, u_min, u_max)) - u])
-mu = 1.0
-lambdas_ = np.zeros((n, N))
+lambdas = opt.variable(h_dim)
+mu = opt.parameter()
 
-# symbolic variables
-H_ = opt.variable(n, N)
-LAM = opt.variable(n, N)
 
 # cost function
-L_ = (
-    lambda x, u: (x_ter - x).T @ Q @ (x_ter - x) + u.T @ R @ u
-)  ## Funzione di costo del tipo (x-xf)^T*Q*(x-xf) + u^T * R * u
-L_lagrangian = (
-    lambda x, u, lambdas_, mu: L_(x, u)
-    + lambdas_.T @ h_(x, u)
-    + (mu / 2) * cs.norm_2(h_(x, u)) ** 2
+L_ = lambda x, u: (x_ter - x).T @ Q @ (x_ter - x) + u.T @ R @ u
+L_lag_ = (
+    lambda x, u, lambdas, mu: L_(x, u)
+    + lambdas.T @ h(x, u)
+    + (mu / 2) * cs.sumsqr(h(x, u))
 )
 L_ter_ = lambda x: (x_ter - x).T @ Q_ter @ (x_ter - x)
 
 # cost functions -> symbolic functions
 L = cs.Function("L", [X, U], [L_(X, U)], {"post_expand": True})
+L_lag = cs.Function("L_lag", [X, U, lambdas, mu], [L_lag_(X, U, lambdas, mu)], {"post_expand": True})
 L_ter = cs.Function("L_ter", [X], [L_ter_(X)], {"post_expand": True})
-L_lagrangian = cs.Function(
-    "L_lagrangian",
-    [X, U, LAM, mu],
-    [L_lagrangian(X, U, LAM, mu)],
-    {"post_expand": True},
-)
 
-
-## Lagrangian derivatives -> symbolic functions
-
-Lx = cs.Function("Lx", [X, U], [cs.jacobian(L(X, U), X)], {"post_expand": True})
-Lu = cs.Function("Lu", [X, U], [cs.jacobian(L(X, U), U)], {"post_expand": True})
-Lxx = cs.Function("Lxx", [X, U], [cs.jacobian(Lx(X, U), X)], {"post_expand": True})
-Lux = cs.Function("Lux", [X, U], [cs.jacobian(Lu(X, U), X)], {"post_expand": True})
-Luu = cs.Function("Luu", [X, U], [cs.jacobian(Lu(X, U), U)], {"post_expand": True})
+# derivatives of cost functions -> symbolic functions
+Lx_lag = cs.Function("Lx_lag", [X, U, lambdas, mu], [cs.jacobian(L_lag(X, U, lambdas, mu), X)], {"post_expand": True})
+Lu_lag = cs.Function("Lu_lag", [X, U, lambdas, mu], [cs.jacobian(L_lag(X, U, lambdas, mu), U)], {"post_expand": True})
+Lxx_lag = cs.Function("Lxx_lag", [X, U, lambdas, mu], [cs.jacobian(Lx_lag(X, U, lambdas, mu), X)], {"post_expand": True})
+Lux_lag = cs.Function("Lux_lag", [X, U, lambdas, mu], [cs.jacobian(Lu_lag(X, U, lambdas, mu), X)], {"post_expand": True})
+Luu_lag = cs.Function("Luu", [X, U, lambdas, mu], [cs.jacobian(Lu_lag(X, U, lambdas, mu), U)], {"post_expand": True})
 L_terx = cs.Function("L_terx", [X], [cs.jacobian(L_ter(X), X)], {"post_expand": True})
 L_terxx = cs.Function(
     "L_terxx", [X], [cs.jacobian(L_terx(X), X)], {"post_expand": True}
 )
-L_lagrangian_x = cs.Function(
-    "L_lagrangian_x",
-    [X, U, LAM, mu],
-    [cs.jacobian(L_lagrangian(X, U, LAM, mu), X)],
-    {"post_expand": True},
-)
-L_lagrangian_u = cs.Function(
-    "L_lagrangian_u",
-    [X, U, LAM, mu],
-    [cs.jacobian(L_lagrangian(X, U, LAM, mu), U)],
-    {"post_expand": True},
-)
-L_lagrangian_xx = cs.Function(
-    "L_lagrangian_xx",
-    [X, U, LAM, mu],
-    [cs.jacobian(L_lagrangian_x(X, U, LAM, mu), X)],
-    {"post_expand": True},
-)
-L_lagrangian_ux = cs.Function(
-    "L_lagrangian_ux",
-    [X, U, LAM, mu],
-    [cs.jacobian(L_lagrangian_u(X, U, LAM, mu), X)],
-    {"post_expand": True},
-)
-L_lagrangian_uu = cs.Function(
-    "L_lagrangian_uu",
-    [X, U, LAM, mu],
-    [cs.jacobian(L_lagrangian_u(X, U, LAM, mu), U)],
-    {"post_expand": True},
-)
+
 
 # dynamics
 f_cont = mod.f
@@ -132,25 +90,50 @@ Vxx = np.zeros((n, n, N + 1))
 
 total_time = 0
 
+# Verifica dimensioni iniziali
+print(f"x shape: {x.shape}")  # (n, N+1)
+print(f"u shape: {u.shape}")  # (m, N)
+print(f"V shape: {V.shape}")  # (N+1,)
+print(f"Vx shape: {Vx.shape}")  # (n, N+1)
+print(f"Vxx shape: {Vxx.shape}")  # (n, n, N+1)
+print(f"k shape: {np.array(k).shape}")  # (N+1, m, 1)
+print(f"K shape: {np.array(K).shape}")  # (N+1, m, n)
+print(f"x iniziale: {x[:, 0]}")
+print(f"u iniziale: {u[:, 0]}")
+print(f"Valore iniziale del costo: {cost}")
+
+
+
 for iter in range(max_ddp_iters):
     # backward pass
     backward_pass_start_time = time.time()
     V[N] = L_ter(x[:, N])
-    Vx[:, N] = L_terx(x[:, N])
+    Vx[:, N] = np.array(L_terx(x[:, N])).flatten()
     Vxx[:, :, N] = L_terxx(x[:, N])
+    print(f"L_terx shape: {L_terx(x[:, N]).shape}")
+    print(f"Vx[:, N] shape: {Vx[:, N].shape}")
+
 
     for i in reversed(range(N)):
         fx_eval = fx(x[:, i], u[:, i])
         fu_eval = fu(x[:, i], u[:, i])
+        hx_eval = cs.jacobian(h(x[:, i], u[:, i]), X)  
+        hu_eval = cs.jacobian(h(x[:, i], u[:, i]), U)  
+        
+        print(f"hx_eval shape: {hx_eval.shape}")
+        print(f"hu_eval shape: {hu_eval.shape}")
 
-        Qx = Lx(x[:, i], u[:, i]).T + fx_eval.T @ Vx[:, i + 1]
-        Qu = Lu(x[:, i], u[:, i]).T + fu_eval.T @ Vx[:, i + 1]
 
-        Qxx = Lxx(x[:, i], u[:, i]) + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval
-        Quu = Luu(x[:, i], u[:, i]) + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval
-        Qux = Lux(x[:, i], u[:, i]) + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval
+        Qx = Lx_lag(x[:, i], u[:, i], lambdas, mu).T + fx_eval.T @ Vx[:, i + 1] + hx_eval.T @ lambdas
+        Qu = Lu_lag(x[:, i], u[:, i], lambdas, mu).T + fu_eval.T @ Vx[:, i + 1] + hu_eval.T @ lambdas
+
+        Qxx = Lxx_lag(x[:, i], u[:, i], lambdas, mu) + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval + mu * hx_eval.T @ hx_eval
+        Quu = Luu_lag(x[:, i], u[:, i], lambdas, mu) + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval + mu * hu_eval.T @ hu_eval
+        Qux = Lux_lag(x[:, i], u[:, i], lambdas, mu) + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval + mu * hu_eval.T @ hx_eval
 
         Quu_inv = np.linalg.inv(Quu)
+        print(f"Quu shape: {Quu.shape}")
+
         k[i] = -Quu_inv @ Qu
         K[i] = -Quu_inv @ Qux
 
