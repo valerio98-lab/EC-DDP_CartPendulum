@@ -70,9 +70,17 @@ f = cs.Function("f", [X, U], [f_(X, U)], {"post_expand": True})
 fx = cs.Function("fx", [X, U], [cs.jacobian(f_(X, U), X)], {"post_expand": True})
 fu = cs.Function("fu", [X, U], [cs.jacobian(f_(X, U), U)], {"post_expand": True})
 
+#eq. constraints
+h = cs.Function("h", [X, U], [h_(X,U)], {"post_expand": True})
+hx = cs.Function("hx", [X, U], [cs.jacobian(h(X, U), X)], {"post_expand": True})
+hu = cs.Function("hu", [X, U], [cs.jacobian(h(X, U), U)], {"post_expand": True})
+
 # initial forward pass
 x = np.zeros((n, N + 1))
 u = np.ones((m, N))
+mu_num = 1.0
+lambda_num = np.zeros(h_dim)
+
 x[:, 0] = np.zeros(n)
 
 cost = 0
@@ -90,19 +98,6 @@ Vxx = np.zeros((n, n, N + 1))
 
 total_time = 0
 
-# Verifica dimensioni iniziali
-print(f"x shape: {x.shape}")  # (n, N+1)
-print(f"u shape: {u.shape}")  # (m, N)
-print(f"V shape: {V.shape}")  # (N+1,)
-print(f"Vx shape: {Vx.shape}")  # (n, N+1)
-print(f"Vxx shape: {Vxx.shape}")  # (n, n, N+1)
-print(f"k shape: {np.array(k).shape}")  # (N+1, m, 1)
-print(f"K shape: {np.array(K).shape}")  # (N+1, m, n)
-print(f"x iniziale: {x[:, 0]}")
-print(f"u iniziale: {u[:, 0]}")
-print(f"Valore iniziale del costo: {cost}")
-
-
 
 for iter in range(max_ddp_iters):
     # backward pass
@@ -110,41 +105,33 @@ for iter in range(max_ddp_iters):
     V[N] = L_ter(x[:, N])
     Vx[:, N] = np.array(L_terx(x[:, N])).flatten()
     Vxx[:, :, N] = L_terxx(x[:, N])
-    print(f"L_terx shape: {L_terx(x[:, N]).shape}")
-    print(f"Vx[:, N] shape: {Vx[:, N].shape}")
 
 
     for i in reversed(range(N)):
         fx_eval = fx(x[:, i], u[:, i])
         fu_eval = fu(x[:, i], u[:, i])
-        hx_eval = cs.jacobian(h(x[:, i], u[:, i]), X)  
-        hu_eval = cs.jacobian(h(x[:, i], u[:, i]), U)  
-        
-        print(f"hx_eval shape: {hx_eval.shape}")
-        print(f"hu_eval shape: {hu_eval.shape}")
+        hx_eval = hx(x[:, i], u[:, i])
+        hu_eval = hu(x[:, i], u[:, i])
 
-
-        Qx = Lx_lag(x[:, i], u[:, i], lambdas, mu).T + fx_eval.T @ Vx[:, i + 1] + hx_eval.T @ lambdas
-        Qu = Lu_lag(x[:, i], u[:, i], lambdas, mu).T + fu_eval.T @ Vx[:, i + 1] + hu_eval.T @ lambdas
-
-        Qxx = Lxx_lag(x[:, i], u[:, i], lambdas, mu) + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval + mu * hx_eval.T @ hx_eval
-        Quu = Luu_lag(x[:, i], u[:, i], lambdas, mu) + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval + mu * hu_eval.T @ hu_eval
-        Qux = Lux_lag(x[:, i], u[:, i], lambdas, mu) + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval + mu * hu_eval.T @ hx_eval
+        Qx = Lx_lag(x[:, i], u[:, i], lambda_num, mu_num).T + fx_eval.T @ Vx[:, i + 1] + hx_eval.T @ lambda_num
+        Qu = Lu_lag(x[:, i], u[:, i], lambda_num, mu_num).T + fu_eval.T @ Vx[:, i + 1] + hu_eval.T @ lambda_num
+        Qxx = Lxx_lag(x[:, i], u[:, i], lambda_num, mu_num) + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval + mu_num * hx_eval.T @ hx_eval
+        Quu = Luu_lag(x[:, i], u[:, i], lambda_num, mu_num) + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval + mu_num * hu_eval.T @ hu_eval
+        Qux = Lux_lag(x[:, i], u[:, i], lambda_num, mu_num) + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval + mu_num * hu_eval.T @ hx_eval
 
         Quu_inv = np.linalg.inv(Quu)
-        print(f"Quu shape: {Quu.shape}")
 
         k[i] = -Quu_inv @ Qu
         K[i] = -Quu_inv @ Qux
 
-        V[i] = V[i + 1] - 0.5 * k[i].T @ Quu @ k[i]
+        V[i] = V[i + 1] - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]
         Vx[:, i] = np.array(Qx - K[i].T @ Quu @ k[i]).flatten()
         Vxx[:, :, i] = Qxx - K[i].T @ Quu @ K[i]
 
     backward_pass_time = time.time() - backward_pass_start_time
 
     # forward pass
-    forward_pass_start_time = time.time()
+    forward_pass_start_time = time.time() 
     unew = np.ones((m, N))
     xnew = np.zeros((n, N + 1))
     xnew[:, 0] = x[:, 0]
@@ -169,6 +156,12 @@ for iter in range(max_ddp_iters):
         else:
             alpha /= 2.0
 
+    for i in range(N):
+        lambda_num += mu_num * (np.array(h(x[:, i], u[:, i])).squeeze(-1))
+
+    if np.linalg.norm(h(x[:, :-1], u)) > 1e-3:
+        mu_num *= 10
+
     forward_pass_time = time.time() - forward_pass_start_time
     total_time += backward_pass_time + forward_pass_time
     print(
@@ -178,6 +171,8 @@ for iter in range(max_ddp_iters):
         round(backward_pass_time * 1000),
         "FP Time:",
         round(forward_pass_time * 1000),
+        "||h(x, u)||:",
+        np.linalg.norm(h(x[:, :-1], u))
     )
 
 print("Total time: ", total_time * 1000, " ms")
