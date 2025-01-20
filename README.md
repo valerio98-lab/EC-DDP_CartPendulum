@@ -16,16 +16,14 @@ A reimplementation of **Equality Constrained Differential Dynamic Programming (E
 
 ## 🔧 Installation
 Clone the repository and install dependencies:
-```
-bash
+```bash
 git clone https://github.com/your-username/ec-ddp.git
 cd ec-ddp
 pip install -r requirements.txt
 ```
 
 ## 🔧 Quick Example
-```
-bash
+```bash
 from ec_ddp import EC_DDP
 
 # Define dynamics, cost function, and constraints
