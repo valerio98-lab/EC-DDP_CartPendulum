@@ -17,16 +17,16 @@ A reimplementation of **Equality Constrained Differential Dynamic Programming (E
 ## 🔧 Installation
 Clone the repository and install dependencies:
 ```bash
-git clone https://github.com/your-username/ec-ddp.git
+git clone https://github.com/valerio98-lab/EC-DDP_CartPendulum.git
 cd ec-ddp
 pip install -r requirements.txt
 ```
 
-## 🔧 Quick Example
+<!--## 🔧 Quick Example
 ```bash
 from ec_ddp import EC_DDP
 
 # Define dynamics, cost function, and constraints
 ddp_solver = EC_DDP(dynamics, cost_function, constraints)
 optimal_trajectory = ddp_solver.solve(initial_state, initial_control)
-```
+```-->
