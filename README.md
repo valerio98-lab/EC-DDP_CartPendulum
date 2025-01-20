@@ -18,7 +18,7 @@ A reimplementation of **Equality Constrained Differential Dynamic Programming (E
 Clone the repository and install dependencies:
 ```bash
 git clone https://github.com/valerio98-lab/EC-DDP_CartPendulum.git
-cd ec-ddp
+cd EC-DDP_CartPendulum
 pip install -r requirements.txt
 ```
 
