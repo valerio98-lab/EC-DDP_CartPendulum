@@ -112,9 +112,16 @@ Vxx = np.zeros((n, n, N + 1))
 
 total_time = 0
 
+eta = 20
+omega = 20
+k_mu = 10
+eta_threshold = 10
+omega_threshold = 10
+beta = 0.5
+iteration = 0
 
-for iter in range(max_ddp_iters):
-    # backward pass
+while eta > eta_threshold and omega > omega_threshold and iteration < 20:
+    iteration += 1
     backward_pass_start_time = time.time()
     V[N] = L_ter(x[:, N])
     Vx[:, N] = np.array(L_terx(x[:, N])).flatten()
@@ -196,11 +203,13 @@ for iter in range(max_ddp_iters):
         else:
             alpha /= 2.0
 
-    for i in range(N):
-        lambda_num += mu_num * (np.array(h(x[:, i], u[:, i])).squeeze(-1))
-
-    if np.linalg.norm(h(x[:, :-1], u)) > 1e-3:
-        mu_num *= 2
+    if np.linalg.norm(Lx_lag(xnew[:, N - 1], unew[:, N - 1], lambda_num, mu_num)) < omega:
+        if np.linalg.norm(h(xnew[:, N - 1], unew[:, N - 1])) < eta:
+            lambda_num += mu_num * h(xnew[:, N - 1], unew[:, N - 1])
+            eta /= mu_num**beta
+            omega /= mu_num
+        else:
+            mu_num *= k_mu
 
     forward_pass_time = time.time() - forward_pass_start_time
     total_time += backward_pass_time + forward_pass_time
