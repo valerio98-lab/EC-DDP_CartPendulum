@@ -133,12 +133,13 @@ for iter in range(max_ddp_iters):
         Qx = (
             Lx_lag(x[:, i], u[:, i], lambda_num, mu_num).T
             + fx_eval.T @ Vx[:, i + 1]
-            + (lambda_num + mu_num * h_eval).T @ hx_eval
+            + hx_eval.T @ (lambda_num + mu_num * h_eval)
         )
+
         Qu = (
             Lu_lag(x[:, i], u[:, i], lambda_num, mu_num).T
             + fu_eval.T @ Vx[:, i + 1]
-            + (lambda_num + mu_num * h_eval).T @ hu_eval
+            + hu_eval.T @ (lambda_num + mu_num * h_eval)
         )
 
         Qxx = (
