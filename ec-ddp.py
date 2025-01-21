@@ -33,6 +33,7 @@ h_ = lambda x, u: mod.constraints(x, u)
 h_dim = mod.constraints(X, U).shape[0]
 h = cs.Function("h", [X, U], [mod.constraints(X, U)], {"post_expand": True})
 
+
 lambdas = opt.variable(h_dim)
 mu = opt.parameter()
 
@@ -61,19 +62,32 @@ L_terx = cs.Function("L_terx", [X], [cs.jacobian(L_ter(X), X)], {"post_expand": 
 L_terxx = cs.Function("L_terxx", [X], [cs.jacobian(L_terx(X), X)], {"post_expand": True})
 
 
+print(Lx_lag(X, U, lambdas, mu).shape)
+print(Lxx_lag(X, U, lambdas, mu).shape)
+
+
 # dynamics
 f_cont = mod.f
 f_ = lambda x, u: x + Δ * f_cont(x, u)
 f = cs.Function("f", [X, U], [f_(X, U)], {"post_expand": True})
-fx = cs.Function("fx", [X, U], [cs.jacobian(f_(X, U), X)], {"post_expand": True})
-fu = cs.Function("fu", [X, U], [cs.jacobian(f_(X, U), U)], {"post_expand": True})
+fx = cs.Function("fx", [X, U], [cs.jacobian(f(X, U), X)], {"post_expand": True})
+fu = cs.Function("fu", [X, U], [cs.jacobian(f(X, U), U)], {"post_expand": True})
+# # fxx = cs.Function("fxx", [X, U], [cs.hessian(f(X, U), X)])
+
+# print("f shape: ", f(X, U).shape)
+# print("fx shape: ", fx(X, U).shape)
+# print("fu shape: ", fu(X, U).shape)
+# # print("fxx shape: ", fxx(X, U).shape)
+
 
 # eq. constraints
 h = cs.Function("h", [X, U], [h_(X, U)], {"post_expand": True})
 hx = cs.Function("hx", [X, U], [cs.jacobian(h(X, U), X)], {"post_expand": True})
 hu = cs.Function("hu", [X, U], [cs.jacobian(h(X, U), U)], {"post_expand": True})
-hxx = cs.Function("hxx", [X, U], [cs.hessian(h(X, U).T @ h(X, U), X)[0]], {"post_expand": True})
+hxx = cs.Function("hxx", [X, U], [cs.jacobian(hx(X, U), X)], {"post_expand": True})
 huu = cs.Function("huu", [X, U], [cs.jacobian(hu(X, U), U)], {"post_expand": True})
+hux = cs.Function("hux", [X, U], [cs.jacobian(hu(X, U), X)], {"post_expand": True})
+
 
 # initial forward pass
 x = np.zeros((n, N + 1))
@@ -114,20 +128,19 @@ for iter in range(max_ddp_iters):
         hu_eval = hu(x[:, i], u[:, i])
         hxx_eval = hxx(x[:, i], u[:, i])
         huu_eval = huu(x[:, i], u[:, i])
+        hux_eval = hux(x[:, i], u[:, i])
 
-        Qx = Lx_lag(x[:, i], u[:, i], lambda_num, mu_num).T + fx_eval.T @ Vx[:, i + 1] + hx_eval.T @ lambda_num
-        Qu = Lu_lag(x[:, i], u[:, i], lambda_num, mu_num).T + fu_eval.T @ Vx[:, i + 1] + hu_eval.T @ lambda_num
+        Qx = (
+            Lx_lag(x[:, i], u[:, i], lambda_num, mu_num).T
+            + fx_eval.T @ Vx[:, i + 1]
+            + (lambda_num + mu_num * h_eval).T @ hx_eval
+        )
+        Qu = (
+            Lu_lag(x[:, i], u[:, i], lambda_num, mu_num).T
+            + fu_eval.T @ Vx[:, i + 1]
+            + (lambda_num + mu_num * h_eval).T @ hu_eval
+        )
 
-        print("First matrix shape: ", (fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval).shape)
-        print("lambda shape: ", lambda_num.shape)
-        print("mu shape: ", mu_num)
-        print("h_eval shape: ", h_eval.shape)
-        print("hxx shape: ", hxx_eval.shape)
-        print("hx shape: ", hx_eval.shape)
-
-        print("Second matrix shape: ", ((lambda_num + mu_num * h_eval).T @ hxx_eval).shape)
-        print("Third matrix shape: ", (mu_num * hx_eval.T @ hx_eval).shape)
-        exit()
         Qxx = (
             Lxx_lag(x[:, i], u[:, i], lambda_num, mu_num)
             + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval
@@ -137,11 +150,13 @@ for iter in range(max_ddp_iters):
         Quu = (
             Luu_lag(x[:, i], u[:, i], lambda_num, mu_num)
             + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval
+            + (lambda_num + mu_num * h_eval).T @ huu_eval
             + mu_num * hu_eval.T @ hu_eval
         )
         Qux = (
             Lux_lag(x[:, i], u[:, i], lambda_num, mu_num)
             + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval
+            + (lambda_num + mu_num * h_eval).T @ hux_eval
             + mu_num * hu_eval.T @ hx_eval
         )
 
@@ -184,7 +199,7 @@ for iter in range(max_ddp_iters):
         lambda_num += mu_num * (np.array(h(x[:, i], u[:, i])).squeeze(-1))
 
     if np.linalg.norm(h(x[:, :-1], u)) > 1e-3:
-        mu_num *= 10
+        mu_num *= 2
 
     forward_pass_time = time.time() - forward_pass_start_time
     total_time += backward_pass_time + forward_pass_time
