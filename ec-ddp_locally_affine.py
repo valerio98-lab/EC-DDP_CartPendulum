@@ -39,7 +39,11 @@ mu = opt.parameter()
 
 # cost function
 L_ = lambda x, u: (x_ter - x).T @ Q @ (x_ter - x) + u.T @ R @ u
-L_lag_ = lambda x, u, lambdas, mu: L_(x, u) + lambdas.T @ h(x, u) + (mu / 2) * cs.sumsqr(h(x, u))
+L_lag_ = (
+    lambda x, u, lambdas, mu: L_(x, u)
+    + lambdas.T @ h(x, u)
+    + (mu / 2) * cs.sumsqr(h(x, u))
+)
 L_ter_ = lambda x: (x_ter - x).T @ Q_ter @ (x_ter - x)
 
 # cost functions -> symbolic functions
@@ -50,15 +54,13 @@ L_ter = cs.Function("L_ter", [X], [L_ter_(X)], {"post_expand": True})
 # derivatives of cost functions -> symbolic functions
 Lx_lag = cs.Function("Lx_lag", [X, U, lambdas, mu], [cs.jacobian(L_lag(X, U, lambdas, mu), X)], {"post_expand": True})
 Lu_lag = cs.Function("Lu_lag", [X, U, lambdas, mu], [cs.jacobian(L_lag(X, U, lambdas, mu), U)], {"post_expand": True})
-Lxx_lag = cs.Function(
-    "Lxx_lag", [X, U, lambdas, mu], [cs.jacobian(Lx_lag(X, U, lambdas, mu), X)], {"post_expand": True}
-)
-Lux_lag = cs.Function(
-    "Lux_lag", [X, U, lambdas, mu], [cs.jacobian(Lu_lag(X, U, lambdas, mu), X)], {"post_expand": True}
-)
+Lxx_lag = cs.Function("Lxx_lag", [X, U, lambdas, mu], [cs.jacobian(Lx_lag(X, U, lambdas, mu), X)], {"post_expand": True})
+Lux_lag = cs.Function("Lux_lag", [X, U, lambdas, mu], [cs.jacobian(Lu_lag(X, U, lambdas, mu), X)], {"post_expand": True})
 Luu_lag = cs.Function("Luu", [X, U, lambdas, mu], [cs.jacobian(Lu_lag(X, U, lambdas, mu), U)], {"post_expand": True})
 L_terx = cs.Function("L_terx", [X], [cs.jacobian(L_ter(X), X)], {"post_expand": True})
-L_terxx = cs.Function("L_terxx", [X], [cs.jacobian(L_terx(X), X)], {"post_expand": True})
+L_terxx = cs.Function(
+    "L_terxx", [X], [cs.jacobian(L_terx(X), X)], {"post_expand": True}
+)
 
 
 # dynamics
@@ -68,12 +70,10 @@ f = cs.Function("f", [X, U], [f_(X, U)], {"post_expand": True})
 fx = cs.Function("fx", [X, U], [cs.jacobian(f_(X, U), X)], {"post_expand": True})
 fu = cs.Function("fu", [X, U], [cs.jacobian(f_(X, U), U)], {"post_expand": True})
 
-# eq. constraints
-h = cs.Function("h", [X, U], [h_(X, U)], {"post_expand": True})
+#eq. constraints
+h = cs.Function("h", [X, U], [h_(X,U)], {"post_expand": True})
 hx = cs.Function("hx", [X, U], [cs.jacobian(h(X, U), X)], {"post_expand": True})
 hu = cs.Function("hu", [X, U], [cs.jacobian(h(X, U), U)], {"post_expand": True})
-hxx = cs.Function("hxx", [X, U], [cs.hessian(h(X, U).T @ h(X, U), X)[0]], {"post_expand": True})
-huu = cs.Function("huu", [X, U], [cs.jacobian(hu(X, U), U)], {"post_expand": True})
 
 # initial forward pass
 x = np.zeros((n, N + 1))
@@ -106,44 +106,18 @@ for iter in range(max_ddp_iters):
     Vx[:, N] = np.array(L_terx(x[:, N])).flatten()
     Vxx[:, :, N] = L_terxx(x[:, N])
 
+
     for i in reversed(range(N)):
         fx_eval = fx(x[:, i], u[:, i])
         fu_eval = fu(x[:, i], u[:, i])
-        h_eval = h(x[:, i], u[:, i])
         hx_eval = hx(x[:, i], u[:, i])
         hu_eval = hu(x[:, i], u[:, i])
-        hxx_eval = hxx(x[:, i], u[:, i])
-        huu_eval = huu(x[:, i], u[:, i])
 
         Qx = Lx_lag(x[:, i], u[:, i], lambda_num, mu_num).T + fx_eval.T @ Vx[:, i + 1] + hx_eval.T @ lambda_num
         Qu = Lu_lag(x[:, i], u[:, i], lambda_num, mu_num).T + fu_eval.T @ Vx[:, i + 1] + hu_eval.T @ lambda_num
-
-        print("First matrix shape: ", (fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval).shape)
-        print("lambda shape: ", lambda_num.shape)
-        print("mu shape: ", mu_num)
-        print("h_eval shape: ", h_eval.shape)
-        print("hxx shape: ", hxx_eval.shape)
-        print("hx shape: ", hx_eval.shape)
-
-        print("Second matrix shape: ", ((lambda_num + mu_num * h_eval).T @ hxx_eval).shape)
-        print("Third matrix shape: ", (mu_num * hx_eval.T @ hx_eval).shape)
-        exit()
-        Qxx = (
-            Lxx_lag(x[:, i], u[:, i], lambda_num, mu_num)
-            + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval
-            + (lambda_num + mu_num * h_eval).T @ hxx_eval
-            + mu_num * hx_eval.T @ hx_eval
-        )
-        Quu = (
-            Luu_lag(x[:, i], u[:, i], lambda_num, mu_num)
-            + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval
-            + mu_num * hu_eval.T @ hu_eval
-        )
-        Qux = (
-            Lux_lag(x[:, i], u[:, i], lambda_num, mu_num)
-            + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval
-            + mu_num * hu_eval.T @ hx_eval
-        )
+        Qxx = Lxx_lag(x[:, i], u[:, i], lambda_num, mu_num) + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval + mu_num * hx_eval.T @ hx_eval
+        Quu = Luu_lag(x[:, i], u[:, i], lambda_num, mu_num) + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval + mu_num * hu_eval.T @ hu_eval
+        Qux = Lux_lag(x[:, i], u[:, i], lambda_num, mu_num) + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval + mu_num * hu_eval.T @ hx_eval
 
         Quu_inv = np.linalg.inv(Quu)
 
@@ -157,7 +131,7 @@ for iter in range(max_ddp_iters):
     backward_pass_time = time.time() - backward_pass_start_time
 
     # forward pass
-    forward_pass_start_time = time.time()
+    forward_pass_start_time = time.time() 
     unew = np.ones((m, N))
     xnew = np.zeros((n, N + 1))
     xnew[:, 0] = x[:, 0]
@@ -167,7 +141,9 @@ for iter in range(max_ddp_iters):
     for ls_iter in range(max_line_search_iters):
         new_cost = 0
         for i in range(N):
-            unew[:, i] = np.array(u[:, i] + alpha * k[i] + K[i] @ (xnew[:, i] - x[:, i])).flatten()
+            unew[:, i] = np.array(
+                u[:, i] + alpha * k[i] + K[i] @ (xnew[:, i] - x[:, i])
+            ).flatten()
             xnew[:, i + 1] = np.array(f(xnew[:, i], unew[:, i])).flatten()
             new_cost = new_cost + L(xnew[:, i], unew[:, i])
         new_cost = new_cost + L_ter(xnew[:, N])
@@ -196,7 +172,7 @@ for iter in range(max_ddp_iters):
         "FP Time:",
         round(forward_pass_time * 1000),
         "||h(x, u)||:",
-        np.linalg.norm(h(x[:, :-1], u)),
+        np.linalg.norm(h(x[:, :-1], u))
     )
 
 print("Total time: ", total_time * 1000, " ms")
