@@ -62,22 +62,12 @@ L_terx = cs.Function("L_terx", [X], [cs.jacobian(L_ter(X), X)], {"post_expand": 
 L_terxx = cs.Function("L_terxx", [X], [cs.jacobian(L_terx(X), X)], {"post_expand": True})
 
 
-print(Lx_lag(X, U, lambdas, mu).shape)
-print(Lxx_lag(X, U, lambdas, mu).shape)
-
-
 # dynamics
 f_cont = mod.f
 f_ = lambda x, u: x + Δ * f_cont(x, u)
 f = cs.Function("f", [X, U], [f_(X, U)], {"post_expand": True})
 fx = cs.Function("fx", [X, U], [cs.jacobian(f(X, U), X)], {"post_expand": True})
 fu = cs.Function("fu", [X, U], [cs.jacobian(f(X, U), U)], {"post_expand": True})
-# # fxx = cs.Function("fxx", [X, U], [cs.hessian(f(X, U), X)])
-
-# print("f shape: ", f(X, U).shape)
-# print("fx shape: ", fx(X, U).shape)
-# print("fu shape: ", fu(X, U).shape)
-# # print("fxx shape: ", fxx(X, U).shape)
 
 
 # eq. constraints
@@ -92,8 +82,7 @@ hux = cs.Function("hux", [X, U], [cs.jacobian(hu(X, U), X)], {"post_expand": Tru
 # initial forward pass
 x = np.zeros((n, N + 1))
 u = np.ones((m, N))
-mu_num = 1.0
-lambda_num = np.zeros(h_dim)
+
 
 x[:, 0] = np.zeros(n)
 
@@ -112,16 +101,19 @@ Vxx = np.zeros((n, n, N + 1))
 
 total_time = 0
 
-eta = 20
-omega = 20
-k_mu = 10
-eta_threshold = 10
-omega_threshold = 10
+mu_num = 0.5
+lambda_num = np.zeros(h_dim)
+eta = 2
+omega = 5
+k_mu = 3
+eta_threshold = 0.1
+omega_threshold = 0.1
 beta = 0.5
 iteration = 0
 
-while eta > eta_threshold and omega > omega_threshold and iteration < 20:
+while eta > eta_threshold and omega > omega_threshold:
     iteration += 1
+    print("Iteration: ", iteration)
     backward_pass_start_time = time.time()
     V[N] = L_ter(x[:, N])
     Vx[:, N] = np.array(L_terx(x[:, N])).flatten()
@@ -203,25 +195,37 @@ while eta > eta_threshold and omega > omega_threshold and iteration < 20:
         else:
             alpha /= 2.0
 
-    if np.linalg.norm(Lx_lag(xnew[:, N - 1], unew[:, N - 1], lambda_num, mu_num)) < omega:
-        if np.linalg.norm(h(xnew[:, N - 1], unew[:, N - 1])) < eta:
-            lambda_num += mu_num * h(xnew[:, N - 1], unew[:, N - 1])
+    Lgrad = np.linalg.norm(Lu_lag(xnew[:, N], unew[:, N - 1], lambda_num, mu_num), np.inf)
+    if Lgrad < omega:
+        normcons = np.linalg.norm(h(xnew[:, N], unew[:, N - 1]), np.inf)
+        if normcons < eta:
+            lambda_num += mu_num * h(xnew[:, N], unew[:, N - 1])
             eta /= mu_num**beta
             omega /= mu_num
         else:
             mu_num *= k_mu
+            if mu_num == 1.0:
+                mu_num += 0.1
 
     forward_pass_time = time.time() - forward_pass_start_time
     total_time += backward_pass_time + forward_pass_time
     print(
         "Iteration:",
-        iter,
+        iteration,
         "BP Time:",
         round(backward_pass_time * 1000),
         "FP Time:",
         round(forward_pass_time * 1000),
-        "||h(x, u)||:",
-        np.linalg.norm(h(x[:, :-1], u)),
+        "grad_L:",
+        Lgrad,
+        "||h(x)||:",
+        np.linalg.norm(h(x[:, N], u[:, N - 1]), np.inf),
+        "eta:",
+        eta,
+        "omega:",
+        omega,
+        "mu:",
+        mu_num,
     )
 
 print("Total time: ", total_time * 1000, " ms")
