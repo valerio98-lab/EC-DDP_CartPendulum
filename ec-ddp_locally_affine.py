@@ -36,28 +36,61 @@ h = cs.Function("h", [X, U], [mod.constraints(X, U)], {"post_expand": True})
 
 lambdas = opt.variable(h_dim)
 mu = opt.parameter()
+lambdas_x = opt.variable(h_dim, n)
 
 
 # cost function
 L_ = lambda x, u: (x_ter - x).T @ Q @ (x_ter - x) + u.T @ R @ u
-L_lag_ = lambda x, u, lambdas, mu: L_(x, u) + lambdas.T @ h(x, u) + (mu / 2) * cs.sumsqr(h(x, u))
+L_lag_ = (
+    lambda x, u, lambdas, lambdas_x, mu: L_(x, u)
+    + (lambdas + lambdas_x @ (x_ter - x)).T @ h(x, u)
+    + (mu / 2) * cs.sumsqr(h(x, u))
+)
 L_ter_ = lambda x: (x_ter - x).T @ Q_ter @ (x_ter - x)
 
 # cost functions -> symbolic functions
 L = cs.Function("L", [X, U], [L_(X, U)], {"post_expand": True})
-L_lag = cs.Function("L_lag", [X, U, lambdas, mu], [L_lag_(X, U, lambdas, mu)], {"post_expand": True})
+L_lag = cs.Function(
+    "L_lag", [X, U, lambdas, lambdas_x, mu], [L_lag_(X, U, lambdas, lambdas_x, mu)], {"post_expand": True}
+)
 L_ter = cs.Function("L_ter", [X], [L_ter_(X)], {"post_expand": True})
 
 # derivatives of cost functions -> symbolic functions
-Lx_lag = cs.Function("Lx_lag", [X, U, lambdas, mu], [cs.jacobian(L_lag(X, U, lambdas, mu), X)], {"post_expand": True})
-Lu_lag = cs.Function("Lu_lag", [X, U, lambdas, mu], [cs.jacobian(L_lag(X, U, lambdas, mu), U)], {"post_expand": True})
+Lx_lag = cs.Function(
+    "Lx_lag",
+    [X, U, lambdas, lambdas_x, mu],
+    [cs.jacobian(L_lag(X, U, lambdas, lambdas_x, mu), X)],
+    {"post_expand": True},
+)
+
+Lu_lag = cs.Function(
+    "Lu_lag",
+    [X, U, lambdas, lambdas_x, mu],
+    [cs.jacobian(L_lag(X, U, lambdas, lambdas_x, mu), U)],
+    {"post_expand": True},
+)
+
 Lxx_lag = cs.Function(
-    "Lxx_lag", [X, U, lambdas, mu], [cs.jacobian(Lx_lag(X, U, lambdas, mu), X)], {"post_expand": True}
+    "Lxx_lag",
+    [X, U, lambdas, lambdas_x, mu],
+    [cs.jacobian(Lx_lag(X, U, lambdas, lambdas_x, mu), X)],
+    {"post_expand": True},
 )
+
 Lux_lag = cs.Function(
-    "Lux_lag", [X, U, lambdas, mu], [cs.jacobian(Lu_lag(X, U, lambdas, mu), X)], {"post_expand": True}
+    "Lux_lag",
+    [X, U, lambdas, lambdas_x, mu],
+    [cs.jacobian(Lu_lag(X, U, lambdas, lambdas_x, mu), X)],
+    {"post_expand": True},
 )
-Luu_lag = cs.Function("Luu", [X, U, lambdas, mu], [cs.jacobian(Lu_lag(X, U, lambdas, mu), U)], {"post_expand": True})
+
+Luu_lag = cs.Function(
+    "Luu",
+    [X, U, lambdas, lambdas_x, mu],
+    [cs.jacobian(Lu_lag(X, U, lambdas, lambdas_x, mu), U)],
+    {"post_expand": True},
+)
+
 L_terx = cs.Function("L_terx", [X], [cs.jacobian(L_ter(X), X)], {"post_expand": True})
 L_terxx = cs.Function("L_terxx", [X], [cs.jacobian(L_terx(X), X)], {"post_expand": True})
 
@@ -101,8 +134,12 @@ Vxx = np.zeros((n, n, N + 1))
 
 total_time = 0
 
+
 mu_num = 0.5
 lambda_num = np.zeros(h_dim)
+lambda_num_x = np.zeros((h_dim, n))
+
+
 eta = 2
 omega = 5
 k_mu = 3
@@ -111,7 +148,12 @@ omega_threshold = 0.1
 beta = 0.5
 iteration = 0
 
+mu_history = []
+lambda_history = []
+
 while eta > eta_threshold and omega > omega_threshold:
+    mu_history.append(mu_num)
+    lambda_history.append(np.linalg.norm(lambda_num, np.inf))
     iteration += 1
     print("Iteration: ", iteration)
     backward_pass_start_time = time.time()
@@ -130,34 +172,38 @@ while eta > eta_threshold and omega > omega_threshold:
         hux_eval = hux(x[:, i], u[:, i])
 
         Qx = (
-            Lx_lag(x[:, i], u[:, i], lambda_num, mu_num).T
+            Lx_lag(x[:, i], u[:, i], lambda_num, lambda_num_x, mu_num).T
             + fx_eval.T @ Vx[:, i + 1]
             + hx_eval.T @ (lambda_num + mu_num * h_eval)
+            + lambda_num_x.T @ h_eval
         )
 
         Qu = (
-            Lu_lag(x[:, i], u[:, i], lambda_num, mu_num).T
+            Lu_lag(x[:, i], u[:, i], lambda_num, lambda_num_x, mu_num).T
             + fu_eval.T @ Vx[:, i + 1]
             + hu_eval.T @ (lambda_num + mu_num * h_eval)
         )
 
         Qxx = (
-            Lxx_lag(x[:, i], u[:, i], lambda_num, mu_num)
+            Lxx_lag(x[:, i], u[:, i], lambda_num, lambda_num_x, mu_num)
             + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval
             + (lambda_num + mu_num * h_eval).T @ hxx_eval
             + mu_num * hx_eval.T @ hx_eval
+            + hx_eval.T @ lambda_num_x
+            + lambda_num_x.T @ hx_eval
         )
         Quu = (
-            Luu_lag(x[:, i], u[:, i], lambda_num, mu_num)
+            Luu_lag(x[:, i], u[:, i], lambda_num, lambda_num_x, mu_num)
             + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval
             + (lambda_num + mu_num * h_eval).T @ huu_eval
             + mu_num * hu_eval.T @ hu_eval
         )
         Qux = (
-            Lux_lag(x[:, i], u[:, i], lambda_num, mu_num)
+            Lux_lag(x[:, i], u[:, i], lambda_num, lambda_num_x, mu_num)
             + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval
             + (lambda_num + mu_num * h_eval).T @ hux_eval
             + mu_num * hu_eval.T @ hx_eval
+            + hu_eval.T @ lambda_num_x
         )
 
         Quu_inv = np.linalg.inv(Quu)
@@ -195,11 +241,12 @@ while eta > eta_threshold and omega > omega_threshold:
         else:
             alpha /= 2.0
 
-    Lgrad = np.linalg.norm(Lu_lag(xnew[:, N], unew[:, N - 1], lambda_num, mu_num), np.inf)
+    Lgrad = np.linalg.norm(Lu_lag(xnew[:, N], unew[:, N - 1], lambda_num, lambda_num_x, mu_num), np.inf)
     if Lgrad < omega:
         normcons = np.linalg.norm(h(xnew[:, N], unew[:, N - 1]), np.inf)
         if normcons < eta:
             lambda_num += mu_num * h(xnew[:, N], unew[:, N - 1])
+            # lambda_num_x += mu_num * (hx_eval + hu_eval @ K[N - 1])
             eta /= mu_num**beta
             omega /= mu_num
         else:
@@ -230,6 +277,7 @@ while eta > eta_threshold and omega > omega_threshold:
 
 print("Total time: ", total_time * 1000, " ms")
 
+
 # check result
 xcheck = np.zeros((n, N + 1))
 xcheck[:, 0] = np.zeros(n)
@@ -238,3 +286,8 @@ for i in range(N):
 
 # display
 mod.animate(N, xcheck, u)
+
+plt.plot(mu_history, label="mu")
+plt.plot(lambda_history, label="||lambda||")
+plt.legend()
+plt.show()

@@ -33,11 +33,14 @@ h_ = lambda x, u: mod.constraints(x, u)
 h_dim = mod.constraints(X, U).shape[0]
 h = cs.Function("h", [X, U], [mod.constraints(X, U)], {"post_expand": True})
 
+mu_num = 0.5
+lambda_num = np.zeros(h_dim)
 
 lambdas = opt.variable(h_dim)
 mu = opt.parameter()
 
 
+# cost function
 # cost function
 L_ = lambda x, u: (x_ter - x).T @ Q @ (x_ter - x) + u.T @ R @ u
 L_lag_ = lambda x, u, lambdas, mu: L_(x, u) + lambdas.T @ h(x, u) + (mu / 2) * cs.sumsqr(h(x, u))
@@ -101,8 +104,6 @@ Vxx = np.zeros((n, n, N + 1))
 
 total_time = 0
 
-mu_num = 0.5
-lambda_num = np.zeros(h_dim)
 eta = 2
 omega = 5
 k_mu = 3
@@ -111,7 +112,12 @@ omega_threshold = 0.1
 beta = 0.5
 iteration = 0
 
+mu_history = []
+lambda_history = []
+
 while eta > eta_threshold and omega > omega_threshold:
+    mu_history.append(mu_num)
+    lambda_history.append(np.linalg.norm(lambda_num, np.inf))
     iteration += 1
     print("Iteration: ", iteration)
     backward_pass_start_time = time.time()
@@ -195,11 +201,11 @@ while eta > eta_threshold and omega > omega_threshold:
         else:
             alpha /= 2.0
 
-    Lgrad = np.linalg.norm(Lu_lag(xnew[:, N], unew[:, N - 1], lambda_num, mu_num), np.inf)
+    Lgrad = np.linalg.norm(Lu_lag(x[:, N], u[:, N - 1], lambda_num, mu_num), np.inf)
     if Lgrad < omega:
-        normcons = np.linalg.norm(h(xnew[:, N], unew[:, N - 1]), np.inf)
+        normcons = np.linalg.norm(h(x[:, N], u[:, N - 1]), np.inf)
         if normcons < eta:
-            lambda_num += mu_num * h(xnew[:, N], unew[:, N - 1])
+            lambda_num += mu_num * h(x[:, N], u[:, N - 1])
             eta /= mu_num**beta
             omega /= mu_num
         else:
@@ -238,3 +244,8 @@ for i in range(N):
 
 # display
 mod.animate(N, xcheck, u)
+
+plt.plot(mu_history, label="mu")
+plt.plot(lambda_history, label="||lambda||")
+plt.legend()
+plt.show()
