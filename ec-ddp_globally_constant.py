@@ -33,11 +33,11 @@ h_ = lambda x, u: mod.constraints(x, u)
 h_dim = mod.constraints(X, U).shape[0]
 h = cs.Function("h", [X, U], [mod.constraints(X, U)], {"post_expand": True})
 
-mu_num = 0.5
-lambda_num = np.zeros(h_dim)
-
 lambdas = opt.variable(h_dim)
 mu = opt.parameter()
+
+mu_num = 1.1
+lambda_num = np.zeros(h_dim)
 
 
 # cost function
@@ -92,7 +92,7 @@ x[:, 0] = np.zeros(n)
 cost = 0
 for i in range(N):
     x[:, i + 1] = np.array(f(x[:, i], u[:, i])).flatten()
-    cost += L(x[:, i], u[:, i])
+    cost += L_lag(x[:, i], u[:, i], lambda_num, mu_num)
 cost += L_ter(x[:, N])
 
 k = [np.zeros((m, 1))] * (N + 1)
@@ -104,12 +104,13 @@ Vxx = np.zeros((n, n, N + 1))
 
 total_time = 0
 
-eta = 2
+
+eta = 1
 omega = 5
 k_mu = 3
-eta_threshold = 0.1
-omega_threshold = 0.1
-beta = 0.5
+eta_threshold = 0.6
+omega_threshold = 1
+beta = 0.6
 iteration = 0
 
 mu_history = []
@@ -166,12 +167,19 @@ while eta > eta_threshold and omega > omega_threshold:
             + mu_num * hu_eval.T @ hx_eval
         )
 
+        q = (
+            L_lag(x[:, i], u[:, i], lambda_num, mu_num)
+            + V[i + 1]
+            + lambda_num.T @ h_eval
+            + mu_num / 2 * cs.sumsqr(h_eval)
+        )
+
         Quu_inv = np.linalg.inv(Quu)
 
         k[i] = -Quu_inv @ Qu
         K[i] = -Quu_inv @ Qux
 
-        V[i] = V[i + 1] - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]
+        V[i] = q - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]
         Vx[:, i] = np.array(Qx - K[i].T @ Quu @ k[i]).flatten()
         Vxx[:, :, i] = Qxx - K[i].T @ Quu @ K[i]
 
@@ -190,7 +198,7 @@ while eta > eta_threshold and omega > omega_threshold:
         for i in range(N):
             unew[:, i] = np.array(u[:, i] + alpha * k[i] + K[i] @ (xnew[:, i] - x[:, i])).flatten()
             xnew[:, i + 1] = np.array(f(xnew[:, i], unew[:, i])).flatten()
-            new_cost = new_cost + L(xnew[:, i], unew[:, i])
+            new_cost = new_cost + L_lag(xnew[:, i], unew[:, i], lambda_num, mu_num)
         new_cost = new_cost + L_ter(xnew[:, N])
 
         if new_cost < cost:
@@ -201,17 +209,17 @@ while eta > eta_threshold and omega > omega_threshold:
         else:
             alpha /= 2.0
 
-    Lgrad = np.linalg.norm(Lu_lag(x[:, N], u[:, N - 1], lambda_num, mu_num), np.inf)
+    Lgrad = np.linalg.norm(Lx_lag(x[:, N], u[:, N - 1], lambda_num, mu_num), np.inf)
     if Lgrad < omega:
         normcons = np.linalg.norm(h(x[:, N], u[:, N - 1]), np.inf)
+        print(normcons)
+        print(eta)
         if normcons < eta:
             lambda_num += mu_num * h(x[:, N], u[:, N - 1])
             eta /= mu_num**beta
             omega /= mu_num
         else:
             mu_num *= k_mu
-            if mu_num == 1.0:
-                mu_num += 0.1
 
     forward_pass_time = time.time() - forward_pass_start_time
     total_time += backward_pass_time + forward_pass_time
