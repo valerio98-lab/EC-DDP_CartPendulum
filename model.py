@@ -9,6 +9,20 @@ import os
 
 
 class BaseSystem:
+    """
+    Abstract base class for robotic systems. Provides visualization framework and common utilities.
+
+    Attributes:
+        name (str): System identifier
+        n (int): Number of states
+        m (int): Number of control inputs
+        g (float): Gravity constant
+
+    Methods:
+        setup_animation(): Configures matplotlib visualization
+        animate(): Creates animation of system trajectory
+        draw_frame(): Abstract method for system-specific rendering
+    """
     def __init__(self, name, n, m, g=9.81):
         self.name = name
         self.n = n
@@ -90,6 +104,29 @@ class BaseSystem:
 
 
 class CartPendulum(BaseSystem):
+    """
+    Models cart-pole system with underactuated pendulum mounted on cart.
+
+    State vector x = [q, θ, q̇, θ̇]:
+        q: Cart position
+        θ: Pendulum angle
+        q̇: Cart velocity
+        θ̇: Angular velocity
+
+    Control input u:
+        Force applied to cart
+
+    Parameters:
+        l: Pendulum length
+        m1: Cart mass
+        m2: Pendulum mass
+        b1, b2: Friction coefficients
+
+    Methods:
+        f(): System dynamics
+        constraints(): System constraints
+        draw_frame(): Renders cart-pole visualization
+    """
     def __init__(self):
         super().__init__("cart_pendulum", 4, 1)
         self.Parameters = namedtuple("Parameters", ["l", "m1", "m2", "b1", "b2"])
@@ -145,6 +182,29 @@ class CartPendulum(BaseSystem):
 
 
 class Pendubot(BaseSystem):
+    """
+    Models double pendulum with actuation only at first joint.
+
+    State vector x = [θ₁, θ₂, θ̇₁, θ̇₂]:
+        θ₁: First link angle
+        θ₂: Second link angle
+        θ̇₁: First angular velocity
+        θ̇₂: Second angular velocity
+
+    Control input u:
+        Torque at first joint
+
+    Parameters:
+        m1, m2: Link masses
+        l1, l2: Link lengths
+        I1, I2: Moments of inertia
+        d1, d2: Center of mass distances
+        fr1, fr2: Friction coefficients
+
+    Methods:
+        f(): System dynamics using manipulator equations
+        draw_frame(): Renders double pendulum visualization
+    """
     def __init__(self):
         super().__init__("pendubot", 4, 1)
         self.Parameters = namedtuple("Parameters", ["m1", "m2", "I1", "I2", "l1", "l2", "d1", "d2", "fr1", "fr2"])
