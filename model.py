@@ -263,6 +263,32 @@ class Pendubot(BaseSystem):
 
 
 class Uav(BaseSystem):
+    """
+    Models quadrotor/UAV system with 6 degrees of freedom.
+
+    State vector x = [x, z, θ, ẋ, ż, θ̇]:
+        x: Horizontal position
+        z: Vertical position
+        θ: Rotation angle
+        ẋ: Horizontal velocity
+        ż: Vertical velocity
+        θ̇: Angular velocity
+
+    Control inputs u = [u₁, u₂]:
+        u₁: Right rotor thrust
+        u₂: Left rotor thrust
+
+    Parameters:
+        m: Total mass
+        I: Moment of inertia
+        fr_x, fr_z: Translation friction coefficients
+        fr_theta: Rotational friction coefficient
+        width: Distance between rotors
+
+    Methods:
+        f(): 6-DOF rigid body dynamics with thrust forces
+        draw_frame(): Renders UAV with thrust vectors
+    """
     def __init__(self):
         super().__init__("uav", 6, 2)
         self.Parameters = namedtuple("Parameters", ["m", "I", "fr_x", "fr_z", "fr_theta", "width"])

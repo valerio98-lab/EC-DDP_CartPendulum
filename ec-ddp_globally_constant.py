@@ -4,48 +4,51 @@ import casadi as cs
 import time
 import model
 
-# initialization
+# initialize system parameters and optimization settings
 mod = model.CartPendulum()
-Δ = 0.01
-n, m = mod.n, mod.m
+Δ = 0.01                                                                # Time step
+n, m = mod.n, mod.m                                                     # State and control dimensions
 N = 100
 max_ddp_iters = 10
 max_line_search_iters = 10
-Q = np.eye(n) * 0
-R = np.eye(m) * 0.01
-Q_ter = np.eye(n) * 10000
 
+# Cost function weights
+Q = np.eye(n) * 0                                                       # State cost matrix
+R = np.eye(m) * 0.01                                                    # Control cost matrix
+Q_ter = np.eye(n) * 10000                                               # Terminal cost matrix
+
+# Set target terminal state base on the system type
 if mod.name == "cart_pendulum":
-    x_ter = np.array((0, cs.pi, 0, 0))
+    x_ter = np.array((0, cs.pi, 0, 0))                                  # Upright position
 elif mod.name == "pendubot":
     x_ter = np.array((cs.pi, 0, 0, 0))
 elif mod.name == "uav":
     x_ter = np.array((1, 1, 0, 0, 0, 0))
 
 
-# symbolic variables
+# Setup symbolic optimization variables
 opt = cs.Opti()
-X = opt.variable(n)
-U = opt.variable(m)
+X = opt.variable(n)                                                     # State
+U = opt.variable(m)                                                     # Control
 
 # constraints
 h_ = lambda x, u: mod.constraints(x, u)
 h_dim = mod.constraints(X, U).shape[0]
 h = cs.Function("h", [X, U], [mod.constraints(X, U)], {"post_expand": True})
 
-lambdas = opt.variable(h_dim)
-mu = opt.parameter()
+lambdas = opt.variable(h_dim)                                           # Lagrange multipliers
+mu = opt.parameter()                                                    # Penalty parameter
 
 mu_num = 1.1
 lambda_num = np.zeros(h_dim)
 
 
-# cost function
-# cost function
-L_ = lambda x, u: (x_ter - x).T @ Q @ (x_ter - x) + u.T @ R @ u
-L_lag_ = lambda x, u, lambdas, mu: L_(x, u) + lambdas.T @ h(x, u) + (mu / 2) * cs.sumsqr(h(x, u))
-L_ter_ = lambda x: (x_ter - x).T @ Q_ter @ (x_ter - x)
+# Definition of cost and constraint function using CasADi
+L_ = lambda x, u: (x_ter - x).T @ Q @ (x_ter - x) + u.T @ R @ u         # Running cost
+L_lag_ = lambda x, u, lambdas, mu: L_(x, u) + lambdas.T @ h(x, u) + (mu / 2) * cs.sumsqr(h(x, u))       # Terminal cost
+L_ter_ = lambda x: (x_ter - x).T @ Q_ter @ (x_ter - x)                  # Augmented lagrangian
 
+# Create CasADi functions for derivatives
 # cost functions -> symbolic functions
 L = cs.Function("L", [X, U], [L_(X, U)], {"post_expand": True})
 L_lag = cs.Function("L_lag", [X, U, lambdas, mu], [L_lag_(X, U, lambdas, mu)], {"post_expand": True})
@@ -82,9 +85,10 @@ huu = cs.Function("huu", [X, U], [cs.jacobian(hu(X, U), U)], {"post_expand": Tru
 hux = cs.Function("hux", [X, U], [cs.jacobian(hu(X, U), X)], {"post_expand": True})
 
 
+# Initialize trajectories
 # initial forward pass
-x = np.zeros((n, N + 1))
-u = np.ones((m, N))
+x = np.zeros((n, N + 1))                                                # State trajectory
+u = np.ones((m, N))                                                     # Control trajectory
 
 
 x[:, 0] = np.zeros(n)
@@ -95,27 +99,31 @@ for i in range(N):
     cost += L_lag(x[:, i], u[:, i], lambda_num, mu_num)
 cost += L_ter(x[:, N])
 
-k = [np.zeros((m, 1))] * (N + 1)
-K = [np.zeros((m, n))] * (N + 1)
+# DDP gains
+k = [np.zeros((m, 1))] * (N + 1)                                         # Feedforward terms
+K = [np.zeros((m, n))] * (N + 1)                                         # Feedback gains
 
-V = np.zeros(N + 1)
-Vx = np.zeros((n, N + 1))
-Vxx = np.zeros((n, n, N + 1))
+# Value function storage
+V = np.zeros(N + 1)                                                      # Value function
+Vx = np.zeros((n, N + 1))                                                # Value function gradient
+Vxx = np.zeros((n, n, N + 1))                                            # Value function Hessian
 
 total_time = 0
 
 
-eta = 1
-omega = 5
-k_mu = 3
-eta_threshold = 0.6
-omega_threshold = 1
-beta = 0.6
+# Algorithm paramters
+eta = 1                                                                  # Constraint violation tolerance
+omega = 5                                                                # Gradient tolerance
+k_mu = 3                                                                 # Penalty increase factor
+eta_threshold = 0.6                                                      # Constraint satisfaction threshold
+omega_threshold = 1                                                      # Gradient satisfaction threshold
+beta = 0.6                                                               # Update parameter
 iteration = 0
 
 mu_history = []
 lambda_history = []
 
+# Main optimization loop
 while eta > eta_threshold and omega > omega_threshold:
     mu_history.append(mu_num)
     lambda_history.append(np.linalg.norm(lambda_num, np.inf))
