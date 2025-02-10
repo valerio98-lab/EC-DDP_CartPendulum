@@ -176,7 +176,7 @@ class CartPendulum(BaseSystem):
         )
 
     def constraints(self, x, u):
-        # h1 = x[2]
+        h1 = x[2]
         h2 = x[1] - cs.pi
         return cs.vertcat(h2)
 

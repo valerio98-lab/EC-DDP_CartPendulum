@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import casadi as cs
 import time
-import model 
+import model
 
 
 def initialize_system():
@@ -25,7 +25,7 @@ def initialize_system():
     dt = 0.01               
     n, m = mod.n, mod.m     
     N = 100                 
-    max_line_search_iters = 10  
+    max_line_search_iters = 10
 
     # Define cost matrices
     Q = np.eye(n) * 0      
@@ -175,34 +175,39 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         fu_eval = funcs["fu"](x_i, u_i)
 
         # Evaluate constraints and their derivatives
-        h_eval = funcs["h"](x_i, u_i)
+        h_eval = np.array(funcs["h"](x_i, u_i)).flatten()
         hx_eval = funcs["hx"](x_i, u_i)
         hu_eval = funcs["hu"](x_i, u_i)
         hxx_eval = funcs["hxx"](x_i, u_i)
         huu_eval = funcs["huu"](x_i, u_i)
         hux_eval = funcs["hux"](x_i, u_i)
 
+        # Construct the Imu matrix:
+        Imu = np.zeros((len(h_eval), len(h_eval)))
+        for j in range(len(h_eval)):
+            Imu[j,j] = mu_val[j] if (h_eval[j] >= 0 or lambda_val[j] > 0) else 0
+
         # Compute Q_x, Q_u (jacobian of the cost-to-go)
         Qx = (np.array(funcs["Lx_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fx_eval.T @ Vx[:, i+1] +
-              hx_eval.T @ (lambda_val + mu_val * h_eval))
+              hx_eval.T @ (lambda_val + Imu * h_eval))
         Qu = (np.array(funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fu_eval.T @ Vx[:, i+1] +
-              hu_eval.T @ (lambda_val + mu_val * h_eval))
+              hu_eval.T @ (lambda_val + Imu * h_eval))
         
         # Compute Q_xx, Q_uu, and Q_ux (Hessian of the cost-to-go)
         Qxx = (funcs["Lxx_lag"](x_i, u_i, lambda_val, mu_val) +
                fx_eval.T @ Vxx[:, :, i+1] @ fx_eval +
                (lambda_val + mu_val * h_eval).T @ hxx_eval +
-               mu_val * hx_eval.T @ hx_eval)
+               hx_eval.T @ Imu @ hx_eval)
         Quu = (funcs["Luu_lag"](x_i, u_i, lambda_val, mu_val) +
                fu_eval.T @ Vxx[:, :, i+1] @ fu_eval +
                (lambda_val + mu_val * h_eval).T @ huu_eval +
-               mu_val * hu_eval.T @ hu_eval)
+               hu_eval.T @ Imu @ hu_eval)
         Qux = (funcs["Lux_lag"](x_i, u_i, lambda_val, mu_val) +
                fu_eval.T @ Vxx[:, :, i+1] @ fx_eval +
                (lambda_val + mu_val * h_eval).T @ hux_eval +
-               mu_val * hu_eval.T @ hx_eval)
+               hu_eval.T @ Imu @ hx_eval)
 
         # Compute the cost-to-go at time step i
         q = (float(funcs["L_lag"](x_i, u_i, lambda_val, mu_val)) +
@@ -288,13 +293,15 @@ def update_multipliers(x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, be
     # Evaluate the gradient at the terminal time using the last control input (N-1)
     Lgrad = np.linalg.norm(np.array(funcs["Lx_lag"](x_traj[:, N], u_traj[:, N-1], lambda_val, mu_val)), np.inf)
     if Lgrad < omega:
+        h_eval = np.array(funcs["h"](x_traj[:,N], u_traj[:, N-1])).flatten()
         # Evaluate the constraint violation at the terminal time
-        norm_cons = np.linalg.norm(np.array(funcs["h"](x_traj[:, N], u_traj[:, N-1])), np.inf)
+        norm_cons = np.linalg.norm(h_eval, np.inf)
         if norm_cons < eta:
-            # Update the multipliers if constraints are sufficiently satisfied
-            lambda_val = lambda_val + mu_val * np.array(funcs["h"](x_traj[:, N], u_traj[:, N-1])).flatten()
-            eta /= mu_val**beta
-            omega /= mu_val
+            # Update each multiplier individually
+            for i in range(len(lambda_val)) :
+                lambda_val[i] = lambda_val[i] + mu_val[i] * h_eval[i]
+            eta /= np.min(mu_val)**beta
+            omega /= np.min(mu_val)
         else:
             # Increase the penalty parameter if constraints are not satisfied enough
             mu_val *= k_mu
@@ -315,7 +322,7 @@ def main():
     # Initialize multipliers and penalty parameter
     h_dim = mod.constraints(np.zeros(n), np.ones(m)).shape[0]
     lambda_val = np.zeros(h_dim)
-    mu_val = 1.1
+    mu_val = np.ones(h_dim) * 1.1
 
     # Compute the initial cost along the trajectory
     cost = 0
@@ -373,9 +380,9 @@ def main():
         lambda_val, mu_val, eta, omega, Lgrad = update_multipliers(x_traj, u_traj, funcs,
                                                                      lambda_val, mu_val, eta, omega, beta, k_mu, N)
 
-        print(f"Iteration: {iteration:2d} | BP: {round(bp_time*1000):4d} ms | FP: {round(fp_time*1000):4d} ms | "
-              f"grad_L: {Lgrad:.4f} | ||h(x)||: {np.linalg.norm(np.array(funcs['h'](x_traj[:, N], u_traj[:, N-1])), np.inf):.4f} | "
-              f"eta: {eta:.4f} | omega: {omega:.4f} | mu: {mu_val:.4f}")
+        print(f"Iteration: {iteration:2d} | BP: {round(bp_time * 1000):4d} ms | FP: {round(fp_time * 1000):4d} ms | "
+              f"grad_L: {float(Lgrad):.4f} | ||h(x)||: {float(np.linalg.norm(np.array(funcs['h'](x_traj[:, N], u_traj[:, N - 1])), np.inf)):.4f} | "
+              f"eta: {float(eta):.4f} | omega: {float(omega):.4f} | mu: {float(np.mean(mu_val)):.4f}")
 
     print(f"Total time: {total_time*1000:.2f} ms")
 
