@@ -77,7 +77,7 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
 
     # Define symbols for the multipliers and penalty parameter (using MX so that types match h_expr)
     lam_sym = cs.MX.sym("lambda", h_expr.shape[0])
-    mu_sym = cs.MX.sym("mu", 1)
+    mu_sym = cs.MX.sym("mu", h_expr.shape[0])
 
     # Augmented Lagrangian cost:
     # L_lag(x,u,λ,μ) = L(x,u) + λ^T h(x,u) + (μ/2)*||h(x,u)||^2
