@@ -120,20 +120,34 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     funcs["fx"] = cs.Function("fx", [X, U], [cs.jacobian(f_expr, X)], {"post_expand": True})
     funcs["fu"] = cs.Function("fu", [X, U], [cs.jacobian(f_expr, U)], {"post_expand": True})
 
+
+
     # ----------------------------
     # Constraints and their derivatives
     # ----------------------------
     funcs["h"] = cs.Function("h", [X, U], [h_expr], {"post_expand": True})
     funcs["hx"] = cs.Function("hx", [X, U], [cs.jacobian(h_expr, X)], {"post_expand": True})
     funcs["hu"] = cs.Function("hu", [X, U], [cs.jacobian(h_expr, U)], {"post_expand": True})
-    funcs["hxx"] = cs.Function("hxx", [X, U],
-                               [cs.jacobian(cs.jacobian(h_expr, X), X)],
+
+    hx_expr = funcs["hx"](X, U)
+    hu_expr = funcs["hu"](X, U)
+
+    # ----------------------------
+    # Constraint Hessians approximation using Gauss-Newton method
+    # ----------------------------
+
+    hxx_approx = (1 / mu_sym[0]) * hx_expr.T @ hx_expr
+    hux_approx = (1 / mu_sym[0]) * hu_expr.T @ hx_expr
+    huu_approx = (1 / mu_sym[0]) * hu_expr.T @ hu_expr
+
+    funcs["hxx"] = cs.Function("hxx", [X, U, mu_sym],
+                               [hxx_approx],
                                {"post_expand": True})
-    funcs["huu"] = cs.Function("huu", [X, U],
-                               [cs.jacobian(cs.jacobian(h_expr, U), U)],
+    funcs["huu"] = cs.Function("huu", [X, U, mu_sym],
+                               [huu_approx],
                                {"post_expand": True})
-    funcs["hux"] = cs.Function("hux", [X, U],
-                               [cs.jacobian(cs.jacobian(h_expr, U), X)],
+    funcs["hux"] = cs.Function("hux", [X, U, mu_sym],
+                               [hux_approx],
                                {"post_expand": True})
 
     return funcs
@@ -178,9 +192,9 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         h_eval = np.array(funcs["h"](x_i, u_i)).flatten()
         hx_eval = funcs["hx"](x_i, u_i)
         hu_eval = funcs["hu"](x_i, u_i)
-        hxx_eval = funcs["hxx"](x_i, u_i)
-        huu_eval = funcs["huu"](x_i, u_i)
-        hux_eval = funcs["hux"](x_i, u_i)
+        hxx_eval = funcs["hxx"](x_i, u_i, mu_val)
+        huu_eval = funcs["huu"](x_i, u_i, mu_val)
+        hux_eval = funcs["hux"](x_i, u_i, mu_val)
 
         # Construct the Imu matrix:
         Imu = np.zeros((len(h_eval), len(h_eval)))
@@ -191,23 +205,50 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         Qx = (np.array(funcs["Lx_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fx_eval.T @ Vx[:, i+1] +
               hx_eval.T @ (lambda_val + Imu * h_eval))
+        
+
         Qu = (np.array(funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fu_eval.T @ Vx[:, i+1] +
-              hu_eval.T @ (lambda_val + Imu * h_eval))
+              hu_eval.T @ (lambda_val + Imu @ h_eval))
         
+        # print("Qu:", Qu.shape[0], Qu.shape[1])
+        # print("Lu_lag:", funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val).shape[0], funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val).shape[1])
+        # print("Vx:", Vx[:, i+1].shape[0])
+        # print("hu_eval:", hu_eval.shape[0], hu_eval.shape[1])
+        # print("lambda_val:", lambda_val.shape[0])
+        # print("Imu:", Imu.shape[0], Imu.shape[1])
+        # print("h_eval:", h_eval.shape[0])
+        # print("fu_eval:", fu_eval.shape[0], fu_eval.shape[1])
+        
+        #---------------------------
+        # Projection of (lambda + mu*h)= R^2 into the (state space)= R^4
+        #---------------------------
+
+        c= len(h_eval)  # number of constraints
+
+        # Compute the projection matrix 
+        P = cs.MX.zeros(n, c)    # n state dimension, c constraint dimension
+        P[1, 0] = 1  # h1 affects x2 (row 1, column 0)
+        P[0, 1] = 1  # h2 affects x1 (row 0, column 1)
+
+        # Compute the projections
+        vec = lambda_val + mu_val * h_eval
+        proj_lambda_h = P @ (vec)  # Expand to (4,1)
+    
+
         # Compute Q_xx, Q_uu, and Q_ux (Hessian of the cost-to-go)
         Qxx = (funcs["Lxx_lag"](x_i, u_i, lambda_val, mu_val) +
                fx_eval.T @ Vxx[:, :, i+1] @ fx_eval +
-               (lambda_val + mu_val * h_eval).T @ hxx_eval +
+               cs.diag(proj_lambda_h) @ hxx_eval +            #we create a diagonal matrix with the elements of proj_lambda_h in order to scale the corresponding state
                hx_eval.T @ Imu @ hx_eval)
         Quu = (funcs["Luu_lag"](x_i, u_i, lambda_val, mu_val) +
                fu_eval.T @ Vxx[:, :, i+1] @ fu_eval +
-               (lambda_val + mu_val * h_eval).T @ huu_eval +
+               cs.diag(proj_lambda_h) @ huu_eval +
                hu_eval.T @ Imu @ hu_eval)
         Qux = (funcs["Lux_lag"](x_i, u_i, lambda_val, mu_val) +
                fu_eval.T @ Vxx[:, :, i+1] @ fx_eval +
-               (lambda_val + mu_val * h_eval).T @ hux_eval +
-               hu_eval.T @ Imu @ hx_eval)
+               cs.sum1((lambda_val + mu_val * h_eval) @ hux_eval)+              #solution to the dimensional mismatch (2x4)->(1x4)
+               hu_eval.T @ (Imu @ hx_eval))
 
         # Compute the cost-to-go at time step i
         q = (float(funcs["L_lag"](x_i, u_i, lambda_val, mu_val)) +
@@ -215,9 +256,16 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
              np.array(lambda_val.T @ h_eval).item() +
              mu_val/2 * float(cs.sumsqr(h_eval)))
 
-        Quu_inv = np.linalg.inv(Quu)
+
+        Quu_inv = cs.inv(Quu)
         k[i] = -Quu_inv @ Qu
-        K[i] = -Quu_inv @ Qux
+        K[i] = -Quu_inv @ Qux.T
+
+        print("k[i] shape:", k[i].shape)
+        print("Quu shape:", Quu.shape)
+        print("k[i].T shape:", k[i].T.shape)
+        print("Multiplication result shape:", (k[i].T @ Quu @ k[i]).shape)
+
 
         # Update the value function and its derivatives
         V[i] = q - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]
@@ -313,7 +361,7 @@ def main():
     # Initialize the system parameters and symbolic functions
     mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target = initialize_system()
     funcs = setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal)
-
+    
     # Initialize state and control trajectories
     x_traj = np.zeros((n, N+1))
     u_traj = np.ones((m, N))

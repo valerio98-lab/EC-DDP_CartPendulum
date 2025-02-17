@@ -108,10 +108,10 @@ class CartPendulum(BaseSystem):
     Models cart-pole system with underactuated pendulum mounted on cart.
 
     State vector x = [q, θ, q̇, θ̇]:
-        q: Cart position
-        θ: Pendulum angle
-        q̇: Cart velocity
-        θ̇: Angular velocity
+        q: Cart position (x[0])
+        θ: Pendulum angle (x[1])
+        q̇: Cart velocity (x[2])
+        θ̇: Angular velocity (x[3])
 
     Control input u:
         Force applied to cart
