@@ -136,9 +136,9 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     # Constraint Hessians approximation using Gauss-Newton method
     # ----------------------------
 
-    hxx_approx = (1 / mu_sym[0]) * hx_expr.T @ hx_expr
-    hux_approx = (1 / mu_sym[0]) * hu_expr.T @ hx_expr
-    huu_approx = (1 / mu_sym[0]) * hu_expr.T @ hu_expr
+    hxx_approx = hx_expr.T @ hx_expr
+    hux_approx = hu_expr.T @ hx_expr
+    huu_approx = hu_expr.T @ hu_expr
 
     funcs["hxx"] = cs.Function("hxx", [X, U, mu_sym],
                                [hxx_approx],
@@ -220,34 +220,16 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         # print("h_eval:", h_eval.shape[0])
         # print("fu_eval:", fu_eval.shape[0], fu_eval.shape[1])
         
-        #---------------------------
-        # Projection of (lambda + mu*h)= R^2 into the (state space)= R^4
-        #---------------------------
-
-        c= len(h_eval)  # number of constraints
-
-        # Compute the projection matrix 
-        P = cs.MX.zeros(n, c)    # n state dimension, c constraint dimension
-        P[1, 0] = 1  # h1 affects x2 (row 1, column 0)
-        P[0, 1] = 1  # h2 affects x1 (row 0, column 1)
-
-        # Compute the projections
-        vec = lambda_val + mu_val * h_eval
-        proj_lambda_h = P @ (vec)  # Expand to (4,1)
-    
 
         # Compute Q_xx, Q_uu, and Q_ux (Hessian of the cost-to-go)
         Qxx = (funcs["Lxx_lag"](x_i, u_i, lambda_val, mu_val) +
-               fx_eval.T @ Vxx[:, :, i+1] @ fx_eval +
-               cs.diag(proj_lambda_h) @ hxx_eval +            #we create a diagonal matrix with the elements of proj_lambda_h in order to scale the corresponding state
-               hx_eval.T @ Imu @ hx_eval)
+               fx_eval.T @ P @fx_eval +                             # understand what's P
+                hx_eval.T @ (Imu @ hxx_eval))
         Quu = (funcs["Luu_lag"](x_i, u_i, lambda_val, mu_val) +
-               fu_eval.T @ Vxx[:, :, i+1] @ fu_eval +
-               cs.diag(proj_lambda_h) @ huu_eval +
-               hu_eval.T @ Imu @ hu_eval)
+               fu_eval.T @ P @ fu_eval +
+            hu_eval.T @ (Imu @ huu_eval))
         Qux = (funcs["Lux_lag"](x_i, u_i, lambda_val, mu_val) +
-               fu_eval.T @ Vxx[:, :, i+1] @ fx_eval +
-               cs.sum1((lambda_val + mu_val * h_eval) @ hux_eval)+              #solution to the dimensional mismatch (2x4)->(1x4)
+               fu_eval.T @ P @ fx_eval +
                hu_eval.T @ (Imu @ hx_eval))
 
         # Compute the cost-to-go at time step i
