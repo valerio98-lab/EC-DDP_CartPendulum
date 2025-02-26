@@ -182,27 +182,36 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         huu_eval = funcs["huu"](x_i, u_i)
         hux_eval = funcs["hux"](x_i, u_i)
 
+        print("Type: ", type(h_eval))
+        print("Funcs: ",  type(funcs["h"]))
+
+        Imu = np.zeros((2, 2))
+        for j in range(2):
+            Imu[j,j] = mu_val if (h_eval[j] >= 0 or lambda_val[j] != 0) else 0
+
         # Compute Q_x, Q_u (jacobian of the cost-to-go)
+        print("H_xx: ", hxx_eval.shape)
         Qx = (np.array(funcs["Lx_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fx_eval.T @ Vx[:, i+1] +
-              hx_eval.T @ (lambda_val + mu_val * h_eval))
+              hx_eval.T @ (lambda_val + Imu * h_eval))
         Qu = (np.array(funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fu_eval.T @ Vx[:, i+1] +
-              hu_eval.T @ (lambda_val + mu_val * h_eval))
+              hu_eval.T @ (lambda_val + Imu * h_eval))
         
         # Compute Q_xx, Q_uu, and Q_ux (Hessian of the cost-to-go)
+        print((fx_eval.T @ Vxx[:, :, i+1] @ fx_eval).shape)
+        print(((lambda_val + mu_val * h_eval).T).shape) ##1,2
+        print(((hx_eval.T @ Imu @ hx_eval).T).shape)
         Qxx = (funcs["Lxx_lag"](x_i, u_i, lambda_val, mu_val) +
-               fx_eval.T @ Vxx[:, :, i+1] @ fx_eval +
-               (lambda_val + mu_val * h_eval).T @ hxx_eval +
-               mu_val * hx_eval.T @ hx_eval)
+               fx_eval.T @ Vxx[:, :, i+1] @ fx_eval + (hx_eval.T @ Imu @ hx_eval)) #+(mu_val * hx_eval.T @ hx_eval))
+        
+        print("huu: ", huu_eval.shape)
+        print("hux: ", hux_eval.shape)
         Quu = (funcs["Luu_lag"](x_i, u_i, lambda_val, mu_val) +
-               fu_eval.T @ Vxx[:, :, i+1] @ fu_eval +
-               (lambda_val + mu_val * h_eval).T @ huu_eval +
-               mu_val * hu_eval.T @ hu_eval)
+               fu_eval.T @ Vxx[:, :, i+1] @ fu_eval + (hu_eval.T @ Imu @ hu_eval))
+        
         Qux = (funcs["Lux_lag"](x_i, u_i, lambda_val, mu_val) +
-               fu_eval.T @ Vxx[:, :, i+1] @ fx_eval +
-               (lambda_val + mu_val * h_eval).T @ hux_eval +
-               mu_val * hu_eval.T @ hx_eval)
+               fu_eval.T @ Vxx[:, :, i+1] @ fx_eval + (hu_eval.T @ Imu @ hx_eval))
 
         # Compute the cost-to-go at time step i
         q = (float(funcs["L_lag"](x_i, u_i, lambda_val, mu_val)) +
@@ -343,6 +352,7 @@ def main():
 
     total_time = 0
     iteration = 0
+    bp_start = time.time()
 
     # Main optimization loop
     while eta > eta_threshold and omega > omega_threshold:
@@ -352,7 +362,6 @@ def main():
         print(f"Iteration {iteration}")
 
         # ----- Backward Pass -----
-        bp_start = time.time()
         k, K, V, Vx, Vxx = backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx)
         bp_time = time.time() - bp_start
 
