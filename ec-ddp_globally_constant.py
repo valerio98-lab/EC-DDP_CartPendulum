@@ -193,38 +193,50 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         print("H_xx: ", hxx_eval.shape)
         Qx = (np.array(funcs["Lx_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fx_eval.T @ Vx[:, i+1] +
-              hx_eval.T @ (lambda_val + Imu * h_eval))
+              hx_eval.T @ (lambda_val + Imu @ h_eval))
+        
+        print("Size of Qx", Qx.shape)
         Qu = (np.array(funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fu_eval.T @ Vx[:, i+1] +
-              hu_eval.T @ (lambda_val + Imu * h_eval))
+              hu_eval.T @ (lambda_val + Imu @ h_eval))      #substitute * with @ so Qu returns 1x1
+        print("size of Qu", Qu.shape)
+        print("Size of Lu_shape", funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val).shape)
+
         
         # Compute Q_xx, Q_uu, and Q_ux (Hessian of the cost-to-go)
-        print((fx_eval.T @ Vxx[:, :, i+1] @ fx_eval).shape)
-        print(((lambda_val + mu_val * h_eval).T).shape) ##1,2
+        print("allala",( fu_eval.T @ Vx[:, i+1]).shape)
+        print("wlellle",(hu_eval.T @ (lambda_val + Imu @ h_eval)).shape) ##1,2  ## substitute * with @
         print(((hx_eval.T @ Imu @ hx_eval).T).shape)
         Qxx = (funcs["Lxx_lag"](x_i, u_i, lambda_val, mu_val) +
                fx_eval.T @ Vxx[:, :, i+1] @ fx_eval + (hx_eval.T @ Imu @ hx_eval)) #+(mu_val * hx_eval.T @ hx_eval))
         
+
         print("huu: ", huu_eval.shape)
         print("hux: ", hux_eval.shape)
+        print("Size of Qxx", Qxx.shape)
         Quu = (funcs["Luu_lag"](x_i, u_i, lambda_val, mu_val) +
                fu_eval.T @ Vxx[:, :, i+1] @ fu_eval + (hu_eval.T @ Imu @ hu_eval))
         
+        print("Size of Quu", Quu.shape)
+        print("Size of Luu_lag", funcs["Luu_lag"](x_i, u_i, lambda_val, mu_val).shape)
+        
         Qux = (funcs["Lux_lag"](x_i, u_i, lambda_val, mu_val) +
                fu_eval.T @ Vxx[:, :, i+1] @ fx_eval + (hu_eval.T @ Imu @ hx_eval))
+        print("Size of Qux", Qux.shape)
 
-        # Compute the cost-to-go at time step i
-        q = (float(funcs["L_lag"](x_i, u_i, lambda_val, mu_val)) +
-             V[i+1] +
-             np.array(lambda_val.T @ h_eval).item() +
-             mu_val/2 * float(cs.sumsqr(h_eval)))
+        # # Compute the cost-to-go at time step i                            #following Scianca's code
+        # q = (float(funcs["L_lag"](x_i, u_i, lambda_val, mu_val)) +
+        #      V[i+1] +
+        #      np.array(lambda_val.T @ h_eval).item() +
+        #      mu_val/2 * float(cs.sumsqr(h_eval)))
 
         Quu_inv = np.linalg.inv(Quu)
         k[i] = -Quu_inv @ Qu
         K[i] = -Quu_inv @ Qux
 
+
         # Update the value function and its derivatives
-        V[i] = q - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]
+        V[i] = V[i+1] - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]   # Scianca's code q = V[i+1]
         Vx[:, i] = np.array(Qx - K[i].T @ Quu @ k[i]).flatten()
         Vxx[:, :, i] = Qxx - K[i].T @ Quu @ K[i]
     return k, K, V, Vx, Vxx
