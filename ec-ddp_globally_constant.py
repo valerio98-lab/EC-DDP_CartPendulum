@@ -83,14 +83,16 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     # L_lag(x,u,λ,μ) = L(x,u) + λ^T h(x,u) + (μ/2)*||h(x,u)||^2
     L_lag_expr = L_expr + cs.dot(lam_sym, h_expr) + (mu_sym[0] / 2) * cs.sumsqr(h_expr)
 
-    L_terminal_expr = (x_target - X).T @ Q_terminal @ (x_target - X)
+    #L_terminal_expr = (x_target - X).T @ Q_terminal @ (x_target - X)
+    h_terminal = (mu_sym / 2) * cs.sumsqr(h_expr)
 
     funcs = dict()
     funcs["L"] = cs.Function("L", [X, U], [L_expr], {"post_expand": True})
     # Note: we pass the same lam_sym and mu_sym as inputs for consistency
     funcs["L_lag"] = cs.Function("L_lag", [X, U, lam_sym, mu_sym], [L_lag_expr], {"post_expand": True})
-    funcs["L_terminal"] = cs.Function("L_terminal", [X], [L_terminal_expr], {"post_expand": True})
-
+    #funcs["L_terminal"] = cs.Function("L_terminal", [X], [L_terminal_expr], {"post_expand": True})
+    funcs["h_terminal"] = cs.Function("h_terminal", [X, mu_sym], [h_terminal], {"post_expand": True})
+    
     # Create derivative functions for the augmented cost
     funcs["Lx_lag"] = cs.Function("Lx_lag", [X, U, lam_sym, mu_sym],
                                   [cs.jacobian(L_lag_expr, X)], {"post_expand": True})
@@ -104,11 +106,18 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
                                    [cs.jacobian(cs.jacobian(L_lag_expr, U), U)], {"post_expand": True})
 
     # Derivatives for the terminal cost
-    funcs["L_terminal_x"] = cs.Function("L_terminal_x", [X],
-                                        [cs.jacobian(L_terminal_expr, X)],
+    # funcs["L_terminal_x"] = cs.Function("L_terminal_x", [X],
+    #                                     [cs.jacobian(L_terminal_expr, X)],
+    #                                     {"post_expand": True})
+    # funcs["L_terminal_xx"] = cs.Function("L_terminal_xx", [X],
+    #                                      [cs.jacobian(cs.jacobian(L_terminal_expr, X), X)],
+    #                                      {"post_expand": True})
+
+    funcs["h_terminal_x"] = cs.Function("h_terminal_x", [X, mu_sym],
+                                        [cs.jacobian(h_terminal, X)],
                                         {"post_expand": True})
-    funcs["L_terminal_xx"] = cs.Function("L_terminal_xx", [X],
-                                         [cs.jacobian(cs.jacobian(L_terminal_expr, X), X)],
+    funcs["h_terminal_xx"] = cs.Function("h_terminal_xx", [X, mu_sym],
+                                         [cs.jacobian(cs.jacobian(h_terminal, X), X)],
                                          {"post_expand": True})
 
     # ----------------------------
@@ -157,9 +166,10 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
     """
     # Terminal conditions: at time step N, use the terminal cost
     x_N = x_traj[:, N]
-    V[N] = float(funcs["L_terminal"](x_N))
-    Vx[:, N] = np.array(funcs["L_terminal_x"](x_N)).flatten()
-    Vxx[:, :, N] = funcs["L_terminal_xx"](x_N)
+    u_N = u_traj[:, N-1]
+    V[N] = float(funcs["L_lag"](x_N, u_N, lambda_val, mu_val))
+    Vx[:, N] = np.array(funcs["Lx_lag"](x_N, u_N, lambda_val, mu_val)).flatten()
+    Vxx[:, :, N] = funcs["Lxx_lag"](x_N, u_N, lambda_val, mu_val)
 
     m = u_traj.shape[0]
     n = x_traj.shape[0]
@@ -178,51 +188,34 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         h_eval = funcs["h"](x_i, u_i)
         hx_eval = funcs["hx"](x_i, u_i)
         hu_eval = funcs["hu"](x_i, u_i)
-        hxx_eval = funcs["hxx"](x_i, u_i)
-        huu_eval = funcs["huu"](x_i, u_i)
-        hux_eval = funcs["hux"](x_i, u_i)
+        # hxx_eval = funcs["hxx"](x_i, u_i)
+        # huu_eval = funcs["huu"](x_i, u_i)
+        # hux_eval = funcs["hux"](x_i, u_i)
 
-        print("Type: ", type(h_eval))
-        print("Funcs: ",  type(funcs["h"]))
 
         Imu = np.zeros((2, 2))
         for j in range(2):
             Imu[j,j] = mu_val if (h_eval[j] >= 0 or lambda_val[j] != 0) else 0
 
-        # Compute Q_x, Q_u (jacobian of the cost-to-go)
-        print("H_xx: ", hxx_eval.shape)
         Qx = (np.array(funcs["Lx_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fx_eval.T @ Vx[:, i+1] +
               hx_eval.T @ (lambda_val + Imu @ h_eval))
         
-        print("Size of Qx", Qx.shape)
+
         Qu = (np.array(funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val)).T +
               fu_eval.T @ Vx[:, i+1] +
               hu_eval.T @ (lambda_val + Imu @ h_eval))      #substitute * with @ so Qu returns 1x1
-        print("size of Qu", Qu.shape)
-        print("Size of Lu_shape", funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val).shape)
-
-        
-        # Compute Q_xx, Q_uu, and Q_ux (Hessian of the cost-to-go)
-        print("allala",( fu_eval.T @ Vx[:, i+1]).shape)
-        print("wlellle",(hu_eval.T @ (lambda_val + Imu @ h_eval)).shape) ##1,2  ## substitute * with @
-        print(((hx_eval.T @ Imu @ hx_eval).T).shape)
+ 
         Qxx = (funcs["Lxx_lag"](x_i, u_i, lambda_val, mu_val) +
                fx_eval.T @ Vxx[:, :, i+1] @ fx_eval + (hx_eval.T @ Imu @ hx_eval)) #+(mu_val * hx_eval.T @ hx_eval))
         
 
-        print("huu: ", huu_eval.shape)
-        print("hux: ", hux_eval.shape)
-        print("Size of Qxx", Qxx.shape)
         Quu = (funcs["Luu_lag"](x_i, u_i, lambda_val, mu_val) +
                fu_eval.T @ Vxx[:, :, i+1] @ fu_eval + (hu_eval.T @ Imu @ hu_eval))
-        
-        print("Size of Quu", Quu.shape)
-        print("Size of Luu_lag", funcs["Luu_lag"](x_i, u_i, lambda_val, mu_val).shape)
+
         
         Qux = (funcs["Lux_lag"](x_i, u_i, lambda_val, mu_val) +
                fu_eval.T @ Vxx[:, :, i+1] @ fx_eval + (hu_eval.T @ Imu @ hx_eval))
-        print("Size of Qux", Qux.shape)
 
         # # Compute the cost-to-go at time step i                            #following Scianca's code
         # q = (float(funcs["L_lag"](x_i, u_i, lambda_val, mu_val)) +
@@ -241,7 +234,7 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         Vxx[:, :, i] = Qxx - K[i].T @ Quu @ K[i]
     return k, K, V, Vx, Vxx
 
-def forward_pass(x0, x_old, u_old, k, K, N, max_line_search_iters, funcs, lambda_val, mu_val, prev_cost):
+def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, lambda_val, mu_val, prev_cost):
     """
     Performs the forward pass with a line search to update the state and control trajectories.
     
@@ -262,6 +255,8 @@ def forward_pass(x0, x_old, u_old, k, K, N, max_line_search_iters, funcs, lambda
         alpha           : step size used in the line search
     """
    
+    x0 = x_old[:, 0]
+
     alpha = 1.0  # initial step size
     m = u_old.shape[0]
     n = x0.shape[0]
@@ -274,19 +269,22 @@ def forward_pass(x0, x_old, u_old, k, K, N, max_line_search_iters, funcs, lambda
 
         for i in range(N):
             dx = xnew[:, i] - x_old[:, i]
+            # print("different along x: ", dx)
             # Calculate the new control law: u_new = u_old + alpha*k + K*(x_new - x_old)
             unew[:, i] = np.array(u_old[:, i] + alpha * k[i].full().flatten() + K[i].full() @ dx).flatten()
             # Propagate the dynamics to obtain the new state trajectory
             xnew[:, i+1] = np.array(funcs["f"](xnew[:, i], unew[:, i])).flatten()
             new_cost += float(funcs["L_lag"](xnew[:, i], unew[:, i], lambda_val, mu_val))
-        new_cost += float(funcs["L_terminal"](xnew[:, N]))
+        #new_cost += float(funcs["L_lag"](xnew[:, N], mu_val))
 
         if new_cost < prev_cost:
+            print("Il nuovo costo è minore")
             return xnew, unew, new_cost, alpha
         else:
             alpha /= 2.0  # reduce step size if cost did not decrease
 
     # If no reduction is found, return the last computed trajectories
+    print("Non trovato costo minore")
     return xnew, unew, new_cost, alpha
 
 def update_multipliers(x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, beta, k_mu, N):
@@ -311,6 +309,8 @@ def update_multipliers(x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, be
     if Lgrad < omega:
         # Evaluate the constraint violation at the terminal time
         norm_cons = np.linalg.norm(np.array(funcs["h"](x_traj[:, N], u_traj[:, N-1])), np.inf)
+        print(norm_cons)
+        print(Lgrad)
         if norm_cons < eta:
             # Update the multipliers if constraints are sufficiently satisfied
             lambda_val = lambda_val + mu_val * np.array(funcs["h"](x_traj[:, N], u_traj[:, N-1])).flatten()
@@ -343,7 +343,9 @@ def main():
     for i in range(N):
         x_traj[:, i+1] = np.array(funcs["f"](x_traj[:, i], u_traj[:, i])).flatten()
         cost += float(funcs["L_lag"](x_traj[:, i], u_traj[:, i], lambda_val, mu_val))
-    cost += float(funcs["L_terminal"](x_traj[:, N]))
+
+    print("Costo:", cost)
+    #cost += float(funcs["h_terminal"](x_traj[:, N], mu_val))
 
     # Initialize arrays for the value function, its gradient, and Hessian used in the backward pass
     V = np.zeros(N+1)
@@ -371,7 +373,6 @@ def main():
         iteration += 1
         mu_history.append(mu_val)
         lambda_history.append(np.linalg.norm(lambda_val, np.inf))
-        print(f"Iteration {iteration}")
 
         # ----- Backward Pass -----
         k, K, V, Vx, Vxx = backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx)
@@ -379,7 +380,7 @@ def main():
 
         # ----- Forward Pass with Line Search -----
         fp_start = time.time()
-        x_new, u_new, new_cost, alpha = forward_pass(x_traj[:, 0], x_traj, u_traj, k, K,
+        x_new, u_new, new_cost, alpha = forward_pass(x_traj, u_traj, k, K,
                                                      N, max_line_search_iters, funcs, lambda_val, mu_val, cost)
         fp_time = time.time() - fp_start
 
