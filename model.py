@@ -176,10 +176,12 @@ class CartPendulum(BaseSystem):
         )
 
     def constraints(self, x, u):
-        h1 = x[1] - cs.pi
-        h2 = x[2]
+        h1 = x[0]
+        h2 = x[1] - cs.pi
+        h3 = 0 
+        h4 = 0
 
-        return cs.vertcat(h1, h2)
+        return cs.vertcat(h1, h2, h3, h4)
 
 
 class Pendubot(BaseSystem):

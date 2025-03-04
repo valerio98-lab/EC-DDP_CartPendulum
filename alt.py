@@ -1,16 +1,14 @@
-import time
-
-import casadi as cs
-import matplotlib.pyplot as plt
 import numpy as np
-
-import model
+import matplotlib.pyplot as plt
+import casadi as cs
+import time
+import model 
 
 
 def initialize_system():
     """
     Initializes the system parameters and optimization settings.
-
+    
     Returns:
         mod             : the system model instance
         dt              : integration time step
@@ -24,17 +22,15 @@ def initialize_system():
     """
 
     mod = model.CartPendulum()
-    dt = 0.01
-    n, m = mod.n, mod.m
-    N = 100
-    max_line_search_iters = 10
+    dt = 0.01               
+    n, m = mod.n, mod.m     
+    N = 100                 
+    max_line_search_iters = 10  
 
     # Define cost matrices
-    Q = np.eye(n) * 0
-    R = np.eye(m) * 0.01
-    Q_terminal = (
-        np.eye(n) * 10000
-    )  # terminal cost matrix (large penalty at terminal state)
+    Q = np.eye(n) * 0      
+    R = np.eye(m) * 0.01    
+    Q_terminal = np.eye(n) * 10000  # terminal cost matrix (large penalty at terminal state)
 
     # Define the target terminal state based on the model type
     if mod.name == "cart_pendulum":
@@ -52,23 +48,23 @@ def initialize_system():
 def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     """
     Creates CasADi symbolic functions for the cost, dynamics, and constraints.
-
+    
     The cost functions include:
       - Running cost: L(x,u) = (x_target - x)^T Q (x_target - x) + u^T R u
       - Augmented Lagrangian: L_lag(x,u,λ,μ) = L(x,u) + λ^T h(x,u) + (μ/2)*||h(x,u)||^2
       - Terminal cost: L_terminal(x) = (x_target - x)^T Q_terminal (x_target - x)
-
+    
     The dynamics are defined as:
       f(x,u) = x + dt * f_cont(x,u)
-
+    
     And the constraints function is taken from the model.
-
+    
     Returns:
         funcs: A dictionary of CasADi functions including cost, derivatives, dynamics, and constraints.
     """
     opt = cs.Opti()
-    X = opt.variable(n)  # symbolic state vector
-    U = opt.variable(m)  # symbolic control vector
+    X = opt.variable(n)   # symbolic state vector
+    U = opt.variable(m)   # symbolic control vector
 
     # ----------------------------
     # Cost functions
@@ -76,7 +72,7 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
 
     L_expr = (x_target - X).T @ Q @ (x_target - X) + U.T @ R @ U
 
-    # Get the constraints expression from the model
+    # Get the constraints expression from the model 
     h_expr = mod.constraints(X, U)
 
     # Define symbols for the multipliers and penalty parameter (using MX so that types match h_expr)
@@ -86,58 +82,40 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     # Augmented Lagrangian cost:
     # L_lag(x,u,λ,μ) = L(x,u) + λ^T h(x,u) + (μ/2)*||h(x,u)||^2
     L_lag_expr = L_expr + cs.dot(lam_sym, h_expr) + (mu_sym[0] / 2) * cs.sumsqr(h_expr)
-    L_lag_forward = L_expr + (mu_sym[0] / 2) * cs.sumsqr(h_expr)
-
+    L_lag_wlambda = L_expr + (mu_sym / 2) * cs.sumsqr(h_expr)
+    
     L_terminal_expr = (x_target - X).T @ Q_terminal @ (x_target - X)
 
     funcs = dict()
     funcs["L"] = cs.Function("L", [X, U], [L_expr], {"post_expand": True})
     # Note: we pass the same lam_sym and mu_sym as inputs for consistency
-    funcs["L_lag"] = cs.Function(
-        "L_lag", [X, U, lam_sym, mu_sym], [L_lag_expr], {"post_expand": True}
-    )
-    funcs["L_lag_forward"] = cs.Function(
-        "L_lag_forward", [X, U, mu_sym], [L_lag_forward], {"post_expand": True}
-    )
+    funcs["L_lag"] = cs.Function("L_lag", [X, U, lam_sym, mu_sym], [L_lag_expr], {"post_expand": True})
+    funcs["L_lag_wlambda"] = cs.Function("L_lag", [X, U, mu_sym], [L_lag_wlambda], {"post_expand": True})
 
     funcs["L_terminal"] = cs.Function("L_terminal", [X], [L_terminal_expr], {"post_expand": True})
-    funcs["Lx_lag_forward"] = cs.Function(
-        "Lx_lag_forward",
-        [X, U, mu_sym],
-        [cs.jacobian(L_lag_forward, X)],
-        {"post_expand": True},
-    )
+
     # Create derivative functions for the augmented cost
-    funcs["Lx_lag"] = cs.Function(
-        "Lx_lag",
-        [X, U, lam_sym, mu_sym],
-        [cs.jacobian(L_lag_expr, X)],
-        {"post_expand": True},
-    )
-    funcs["Lu_lag"] = cs.Function(
-        "Lu_lag",
-        [X, U, lam_sym, mu_sym],
-        [cs.jacobian(L_lag_expr, U)],
-        {"post_expand": True},
-    )
-    funcs["Lxx_lag"] = cs.Function(
-        "Lxx_lag",
-        [X, U, lam_sym, mu_sym],
-        [cs.jacobian(cs.jacobian(L_lag_expr, X), X)],
-        {"post_expand": True},
-    )
-    funcs["Lux_lag"] = cs.Function(
-        "Lux_lag",
-        [X, U, lam_sym, mu_sym],
-        [cs.jacobian(cs.jacobian(L_lag_expr, U), X)],
-        {"post_expand": True},
-    )
-    funcs["Luu_lag"] = cs.Function(
-        "Luu_lag",
-        [X, U, lam_sym, mu_sym],
-        [cs.jacobian(cs.jacobian(L_lag_expr, U), U)],
-        {"post_expand": True},
-    )
+    funcs["Lx_lag"] = cs.Function("Lx_lag", [X, U, lam_sym, mu_sym],
+                                  [cs.jacobian(L_lag_expr, X)], {"post_expand": True})
+    funcs["Lu_lag"] = cs.Function("Lu_lag", [X, U, lam_sym, mu_sym],
+                                  [cs.jacobian(L_lag_expr, U)], {"post_expand": True})
+    funcs["Lxx_lag"] = cs.Function("Lxx_lag", [X, U, lam_sym, mu_sym],
+                                   [cs.jacobian(cs.jacobian(L_lag_expr, X), X)], {"post_expand": True})
+    funcs["Lux_lag"] = cs.Function("Lux_lag", [X, U, lam_sym, mu_sym],
+                                   [cs.jacobian(cs.jacobian(L_lag_expr, U), X)], {"post_expand": True})
+    funcs["Luu_lag"] = cs.Function("Luu_lag", [X, U, lam_sym, mu_sym],
+                                   [cs.jacobian(cs.jacobian(L_lag_expr, U), U)], {"post_expand": True})
+
+    funcs["Lx"] = cs.Function("Lx", [X, U],
+                                  [cs.jacobian(L_expr, X)], {"post_expand": True})
+    funcs["Lu"] = cs.Function("Lu", [X, U],
+                                  [cs.jacobian(L_expr, U)], {"post_expand": True})
+    funcs["Lxx"] = cs.Function("Lxx", [X, U],
+                                   [cs.jacobian(cs.jacobian(L_expr, X), X)], {"post_expand": True})
+    funcs["Lux"] = cs.Function("Lux", [X, U],
+                                   [cs.jacobian(cs.jacobian(L_expr, U), X)], {"post_expand": True})
+    funcs["Luu"] = cs.Function("Luu", [X, U],
+                                   [cs.jacobian(cs.jacobian(L_expr, U), U)], {"post_expand": True})
 
     # Derivatives for the terminal cost
     funcs["L_terminal_x"] = cs.Function("L_terminal_x", [X],
@@ -153,32 +131,24 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     # Discrete dynamics: f(x,u) = x + dt * f_cont(x,u)
     f_expr = X + dt * mod.f(X, U)
     funcs["f"] = cs.Function("f", [X, U], [f_expr], {"post_expand": True})
-    funcs["fx"] = cs.Function(
-        "fx", [X, U], [cs.jacobian(f_expr, X)], {"post_expand": True}
-    )
-    funcs["fu"] = cs.Function(
-        "fu", [X, U], [cs.jacobian(f_expr, U)], {"post_expand": True}
-    )
+    funcs["fx"] = cs.Function("fx", [X, U], [cs.jacobian(f_expr, X)], {"post_expand": True})
+    funcs["fu"] = cs.Function("fu", [X, U], [cs.jacobian(f_expr, U)], {"post_expand": True})
 
     # ----------------------------
     # Constraints and their derivatives
     # ----------------------------
     funcs["h"] = cs.Function("h", [X, U], [h_expr], {"post_expand": True})
-    funcs["hx"] = cs.Function(
-        "hx", [X, U], [cs.jacobian(h_expr, X)], {"post_expand": True}
-    )
-    funcs["hu"] = cs.Function(
-        "hu", [X, U], [cs.jacobian(h_expr, U)], {"post_expand": True}
-    )
-    funcs["hxx"] = cs.Function(
-        "hxx", [X, U], [cs.jacobian(cs.jacobian(h_expr, X), X)], {"post_expand": True}
-    )
-    funcs["huu"] = cs.Function(
-        "huu", [X, U], [cs.jacobian(cs.jacobian(h_expr, U), U)], {"post_expand": True}
-    )
-    funcs["hux"] = cs.Function(
-        "hux", [X, U], [cs.jacobian(cs.jacobian(h_expr, U), X)], {"post_expand": True}
-    )
+    funcs["hx"] = cs.Function("hx", [X, U], [cs.jacobian(h_expr, X)], {"post_expand": True})
+    funcs["hu"] = cs.Function("hu", [X, U], [cs.jacobian(h_expr, U)], {"post_expand": True})
+    funcs["hxx"] = cs.Function("hxx", [X, U],
+                               [cs.jacobian(cs.jacobian(h_expr, X), X)],
+                               {"post_expand": True})
+    funcs["huu"] = cs.Function("huu", [X, U],
+                               [cs.jacobian(cs.jacobian(h_expr, U), U)],
+                               {"post_expand": True})
+    funcs["hux"] = cs.Function("hux", [X, U],
+                               [cs.jacobian(cs.jacobian(h_expr, U), X)],
+                               {"post_expand": True})
 
     return funcs
 
@@ -186,7 +156,7 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
 def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
     """
     Executes the backward pass to compute the DDP gains.
-
+    
     Args:
         x_traj  : Current state trajectory, a numpy array of shape (n, N+1)
         u_traj  : Current control trajectory, a numpy array of shape (m, N)
@@ -194,17 +164,16 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         funcs   : Dictionary of CasADi functions (cost, dynamics, constraints, and their derivatives)
         lambda_val, mu_val : Current multiplier and penalty parameter values
         V, Vx, Vxx : Arrays for the value function, its gradient, and Hessian at each time step
-
+        
     Returns:
         k, K  : Lists of feedforward (k) and feedback (K) gains for each time step
         V, Vx, Vxx : Updated value function, its gradient, and Hessian along the trajectory
     """
     # Terminal conditions: at time step N, use the terminal cost
-    # x_N = x_traj[:, N]
-    # u_N = u_traj[:, N - 1]
-    # V[N] = float(funcs["L_terminal"](x_N))
-    # Vx[:, N] = np.array(funcs["L_terminal_x"](x_N)).flatten()
-    # Vxx[:, :, N] = funcs["L_terminal_xx"](x_N)
+    x_N = x_traj[:, N]
+    V[N] = float(funcs["L_terminal"](x_N))
+    Vx[:, N] = np.array(funcs["L_terminal_x"](x_N)).flatten()
+    Vxx[:, :, N] = funcs["L_terminal_xx"](x_N)
 
     m = u_traj.shape[0]
     n = x_traj.shape[0]
@@ -223,49 +192,51 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         h_eval = funcs["h"](x_i, u_i)
         hx_eval = funcs["hx"](x_i, u_i)
         hu_eval = funcs["hu"](x_i, u_i)
-        # hxx_eval = funcs["hxx"](x_i, u_i)
-        # huu_eval = funcs["huu"](x_i, u_i)
-        # hux_eval = funcs["hux"](x_i, u_i)
+        hxx_eval = funcs["hxx"](x_i, u_i)
+        huu_eval = funcs["huu"](x_i, u_i)
+        hux_eval = funcs["hux"](x_i, u_i)
 
-        Imu = np.zeros((2, 2))
-        for j in range(2):
+        Imu = np.zeros((4, 4))
+        for j in range(4):
             Imu[j, j] = mu_val if (h_eval[j] >= 0 or lambda_val[j] != 0) else 0
 
         Qx = (
-            np.array(funcs["Lx_lag"](x_i, u_i, lambda_val, mu_val)).T
+            np.array(funcs["Lx"](x_i, u_i)).T
             + fx_eval.T @ Vx[:, i + 1]
             + hx_eval.T @ (lambda_val + Imu @ h_eval)
         )
 
         Qu = (
-            np.array(funcs["Lu_lag"](x_i, u_i, lambda_val, mu_val)).T
+            np.array(funcs["Lu"](x_i, u_i)).T
             + fu_eval.T @ Vx[:, i + 1]
             + hu_eval.T @ (lambda_val + Imu @ h_eval)
         )  # substitute * with @ so Qu returns 1x1
 
         Qxx = (
-            funcs["Lxx_lag"](x_i, u_i, lambda_val, mu_val)
+            funcs["Lxx"](x_i, u_i)
             + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval
             + (hx_eval.T @ Imu @ hx_eval)
         )  # +(mu_val * hx_eval.T @ hx_eval))
 
         Quu = (
-            funcs["Luu_lag"](x_i, u_i, lambda_val, mu_val)
+            funcs["Luu"](x_i, u_i)
             + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval
             + (hu_eval.T @ Imu @ hu_eval)
         )
 
         Qux = (
-            funcs["Lux_lag"](x_i, u_i, lambda_val, mu_val)
+            funcs["Lux"](x_i, u_i)
             + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval
             + (hu_eval.T @ Imu @ hx_eval)
         )
 
+
         # # Compute the cost-to-go at time step i                            #following Scianca's code
-        # q = (float(funcs["L_lag"](x_i, u_i, lambda_val, mu_val)) +
-        #      V[i+1] +
-        #      np.array(lambda_val.T @ h_eval).item() +
-        #      mu_val/2 * float(cs.sumsqr(h_eval)))
+        lambda_expand = np.expand_dims(lambda_val, axis=1)
+        q = (float(funcs["L"](x_i, u_i)) +
+             V[i+1] +
+             np.array(lambda_expand.T @ h_eval).item() +
+             mu_val/2 * float(cs.sumsqr(h_eval)))
 
         Quu_inv = np.linalg.inv(Quu)
         k[i] = -Quu_inv @ Qu
@@ -273,19 +244,17 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
 
         # Update the value function and its derivatives
         V[i] = (
-            V[i + 1] - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]
+            q - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]
         )  # Scianca's code q = V[i+1]
-        Vx[:, i] = np.array(Qx - K[i].T @ Quu @ k[i]).flatten()
+        Vx[:, i] = np.array(Qx - (k[i].T @ Quu @ K[i]).T).flatten()
         Vxx[:, :, i] = Qxx - K[i].T @ Quu @ K[i]
+
     return k, K, V, Vx, Vxx
 
-
-def forward_pass(
-    x_old, u_old, k, K, N, max_line_search_iters, funcs, lambda_val, mu_val, prev_cost
-):
+def forward_pass(x0, x_old, u_old, k, K, N, max_line_search_iters, funcs, lambda_val, mu_val, prev_cost):
     """
     Performs the forward pass with a line search to update the state and control trajectories.
-
+    
     Args:
         x0              : initial state (numpy array of shape (n,))
         x_old, u_old    : current state and control trajectories (shapes (n, N+1) and (m, N))
@@ -295,63 +264,46 @@ def forward_pass(
         funcs           : dictionary of CasADi functions
         lambda_val, mu_val : current multiplier and penalty parameter values
         prev_cost       : cost of the previous trajectory
-
+        
     Returns:
         x_new           : updated state trajectory
         u_new           : updated control trajectory
         new_cost        : cost of the new trajectory
         alpha           : step size used in the line search
-    """
-
-    x0 = x_old[:, 0]
-
+    """ 
+   
     alpha = 1.0  # initial step size
     m = u_old.shape[0]
     n = x0.shape[0]
-    new_cost = 0
-    xnew = np.zeros((n, N + 1))
-    unew = np.zeros((m, N))
-    xnew[:, 0] = x0.copy()
 
     for ls_iter in range(max_line_search_iters):
         new_cost = 0
-        xnew = np.zeros((n, N + 1))
         unew = np.zeros((m, N))
+        xnew = np.zeros((n, N+1))
         xnew[:, 0] = x0.copy()
 
         for i in range(N):
             dx = xnew[:, i] - x_old[:, i]
-            # print("different along x: ", dx)
             # Calculate the new control law: u_new = u_old + alpha*k + K*(x_new - x_old)
-            unew[:, i] = np.array(
-                u_old[:, i] + alpha * k[i].full().flatten() + K[i].full() @ dx
-            ).flatten()
+            unew[:, i] = np.array(u_old[:, i] + alpha * k[i].full().flatten() + K[i].full() @ dx).flatten()
             # Propagate the dynamics to obtain the new state trajectory
-            xnew[:, i + 1] = np.array(funcs["f"](xnew[:, i], unew[:, i])).flatten()
-            new_cost += float(funcs["L_lag_forward"](xnew[:, i], unew[:, i], mu_val))
-        # new_cost += float(funcs["L_lag"](xnew[:, N], mu_val))
-        # print("Costo nuovo: ", new_cost)
-        # print("Costo vecchio: ", prev_cost)
+            xnew[:, i+1] = np.array(funcs["f"](xnew[:, i], unew[:, i])).flatten()
+            new_cost += float(funcs["L_lag_wlambda"](xnew[:, i], unew[:, i], mu_val))
+        new_cost += float(funcs["L_terminal"](xnew[:, N]))
+
         if new_cost < prev_cost:
-            print("Il nuovo costo è minore")
-            print("Nuovo costo vs old:", new_cost, prev_cost)
             return xnew, unew, new_cost, alpha
         else:
-            #print("Il nuovo costo è maggiore")
             alpha /= 2.0  # reduce step size if cost did not decrease
 
     # If no reduction is found, return the last computed trajectories
-    print("Non trovato costo minore")
-    return x_old, u_old, new_cost, alpha
+    return xnew, unew, new_cost, alpha
 
-
-def update_multipliers(
-    x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, beta, k_mu, N
-):
+def update_multipliers(x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, beta, k_mu, N):
     """
     Updates the multipliers (λ) and the penalty parameter (μ) based on the constraint violation
     and the gradient of the augmented Lagrangian.
-
+    
     Args:
         x_traj, u_traj : current state and control trajectories
         funcs          : dictionary of CasADi functions
@@ -360,49 +312,48 @@ def update_multipliers(
         beta           : exponent used in threshold update
         k_mu           : factor by which μ is increased when constraints are not satisfied
         N              : time horizon (number of time steps)
-
+    
     Returns:
         Updated lambda_val, mu_val, eta, omega, and the gradient norm Lgrad.
     """
     # Evaluate the gradient at the terminal time using the last control input (N-1)
-    Lgrad = np.linalg.norm(
-        np.array(funcs["Lx_lag"](x_traj[:, N], u_traj[:, N - 1], lambda_val, mu_val)),
-        np.inf,
-    )
-    if Lgrad < omega:
-        print("Lgrad < omega")
+    lag_matrix = []
+
+    for index in range(u_traj.shape[1]):
+        Lgrad = funcs["Lx_lag"](x_traj[:, index+1], u_traj[:, index], lambda_val, mu_val).full()
+        lag_matrix.append(Lgrad)
+    
+    lag_matrix = np.array(lag_matrix)
+    lag_matrix = lag_matrix.reshape(lag_matrix.shape[0], lag_matrix.shape[2])
+    infinite_norm_lag = np.linalg.norm(lag_matrix, np.inf)
+
+    if infinite_norm_lag < omega:
         # Evaluate the constraint violation at the terminal time
-        norm_cons = np.linalg.norm(
-            np.array(funcs["h"](x_traj[:, N], u_traj[:, N - 1])), np.inf
-        )
-        print(norm_cons)
-        print(Lgrad)
-        if norm_cons < eta:
-            print("norm_cons < eta")
+
+        cons_inf_norm = np.linalg.norm(funcs["h"](x_traj[:, N], u_traj[:, N-1]).full(), np.inf)
+        
+        print("infinite_norm_cons: ", cons_inf_norm)
+        if cons_inf_norm < eta:
             # Update the multipliers if constraints are sufficiently satisfied
-            lambda_val = (
-                lambda_val
-                + mu_val
-                * np.array(funcs["h"](x_traj[:, N], u_traj[:, N - 1])).flatten()
-            )
+            lambda_val = lambda_val + mu_val * np.array(funcs["h"](x_traj[:, N], u_traj[:, N-1])).flatten()
             eta /= mu_val**beta
             omega /= mu_val
         else:
-            print("Aumento mu")
+            
             # Increase the penalty parameter if constraints are not satisfied enough
             mu_val *= k_mu
-    return lambda_val, mu_val, eta, omega, Lgrad
+            pass
+    return lambda_val, mu_val, eta, omega, infinite_norm_lag
+
 
 
 def main():
     # Initialize the system parameters and symbolic functions
-    mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target = (
-        initialize_system()
-    )
+    mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target = initialize_system()
     funcs = setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal)
 
     # Initialize state and control trajectories
-    x_traj = np.zeros((n, N + 1))
+    x_traj = np.zeros((n, N+1))
     u_traj = np.ones((m, N))
     x_traj[:, 0] = np.zeros(n)  # initial state
 
@@ -414,23 +365,23 @@ def main():
     # Compute the initial cost along the trajectory
     cost = 0
     for i in range(N):
-        x_traj[:, i + 1] = np.array(funcs["f"](x_traj[:, i], u_traj[:, i])).flatten()
-        cost += float(funcs["L_lag_forward"](x_traj[:, i], u_traj[:, i], mu_val))
-
-    # cost += float(funcs["h_terminal"](x_traj[:, N], mu_val))
+        x_traj[:, i+1] = np.array(funcs["f"](x_traj[:, i], u_traj[:, i])).flatten()
+        cost += float(funcs["L_lag_wlambda"](x_traj[:, i], u_traj[:, i], mu_val))
+    cost += float(funcs["L_terminal"](x_traj[:, N]))
 
     # Initialize arrays for the value function, its gradient, and Hessian used in the backward pass
-    V = np.zeros(N + 1)
-    Vx = np.zeros((n, N + 1))
-    Vxx = np.zeros((n, n, N + 1))
+    V = np.zeros(N+1)
+    Vx = np.zeros((n, N+1))
+    Vxx = np.zeros((n, n, N+1))
 
     # Algorithm parameters for updating constraints and gradient tolerances
-    eta = 5
-    omega = 100
+    eta = 20
+    omega = 15
     beta = 0.6
     k_mu = 3
-    eta_threshold = 3
-    omega_threshold = 12
+    eta_threshold = 0.6
+    omega_threshold = 5
+    
 
     # Lists to store the history of μ and the norm of λ
     mu_history = []
@@ -438,7 +389,6 @@ def main():
 
     total_time = 0
     iteration = 0
-    bp_start = time.time()
 
     # Main optimization loop
     while eta > eta_threshold and omega > omega_threshold:
@@ -447,25 +397,14 @@ def main():
         lambda_history.append(np.linalg.norm(lambda_val, np.inf))
 
         # ----- Backward Pass -----
-        k, K, V, Vx, Vxx = backward_pass(
-            x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx
-        )
+        bp_start = time.time()
+        k, K, V, Vx, Vxx = backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx)
         bp_time = time.time() - bp_start
 
         # ----- Forward Pass with Line Search -----
         fp_start = time.time()
-        x_new, u_new, new_cost, alpha = forward_pass(
-            x_traj,
-            u_traj,
-            k,
-            K,
-            N,
-            max_line_search_iters,
-            funcs,
-            lambda_val,
-            mu_val,
-            cost,
-        )
+        x_new, u_new, new_cost, alpha = forward_pass(x_traj[:, 0], x_traj, u_traj, k, K,
+                                                     N, max_line_search_iters, funcs, lambda_val, mu_val, cost)
         fp_time = time.time() - fp_start
 
         if new_cost < cost:
@@ -476,23 +415,32 @@ def main():
         total_time += bp_time + fp_time
 
         # Update multipliers and penalty parameter based on current constraint violation and gradient norm
-        lambda_val, mu_val, eta, omega, Lgrad = update_multipliers(
-            x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, beta, k_mu, N
-        )
 
-        print(
-            f"Iteration: {iteration:2d} | BP: {round(bp_time * 1000):4d} ms | FP: {round(fp_time * 1000):4d} ms | "
-            f"grad_L: {Lgrad:.4f} | ||h(x)||: {np.linalg.norm(np.array(funcs['h'](x_traj[:, N], u_traj[:, N - 1])), np.inf):.4f} | "
-            f"eta: {eta:.4f} | omega: {omega:.4f} | mu: {mu_val:.4f}"
-        )
+        lambda_val, mu_val, eta, omega, infinite_norm_lag = update_multipliers(x_traj, u_traj, funcs,
+                                                                     lambda_val, mu_val, eta, omega, beta, k_mu, N)
+        
+        # check_matrix = []
+        # for index in range(u_traj.shape[1]):
+        #     evaluate_constraint = funcs["h"](x_traj[:, index+1], u_traj[:, index]).full()
+        #     #print("ciccio: ", evaluate_constraint.shape)
+        #     check_matrix.append(evaluate_constraint)
+        
+        # check_matrix = np.array(check_matrix)
+        # #print(check_matrix.shape)
+        # check_matrix = check_matrix.reshape(check_matrix.shape[0]*check_matrix.shape[1], check_matrix.shape[2])
+        # infinite_norm_cons = np.linalg.norm(check_matrix, np.inf)
+        
+        print(f"Iteration: {iteration:2d} | BP: {round(bp_time*1000):4d} ms | FP: {round(fp_time*1000):4d} ms | "
+              f"grad_L: {infinite_norm_lag:.4f} | ||h(x)||: {np.linalg.norm(np.array(funcs['h'](x_traj[:, N], u_traj[:, N - 1])), np.inf):.4f} | "
+              f"eta: {eta:.4f} | omega: {omega:.4f} | mu: {mu_val:.4f}")
 
-    print(f"Total time: {total_time * 1000:.2f} ms")
+    print(f"Total time: {total_time*1000:.2f} ms")
 
     # Verify the result by simulating the trajectory using the obtained control sequence
     x_check = np.zeros_like(x_traj)
     x_check[:, 0] = np.zeros(n)
     for i in range(N):
-        x_check[:, i + 1] = np.array(funcs["f"](x_check[:, i], u_traj[:, i])).flatten()
+        x_check[:, i+1] = np.array(funcs["f"](x_check[:, i], u_traj[:, i])).flatten()
 
     # Animate and visualize the results using the model's animation function
     mod.animate(N, x_check, u_traj)
@@ -503,7 +451,6 @@ def main():
     plt.xlabel("Iteration")
     plt.legend()
     plt.show()
-
 
 if __name__ == "__main__":
     main()
