@@ -23,6 +23,7 @@ class BaseSystem:
         animate(): Creates animation of system trajectory
         draw_frame(): Abstract method for system-specific rendering
     """
+
     def __init__(self, name, n, m, g=9.81):
         self.name = name
         self.n = n
@@ -127,6 +128,7 @@ class CartPendulum(BaseSystem):
         constraints(): System constraints
         draw_frame(): Renders cart-pole visualization
     """
+
     def __init__(self):
         super().__init__("cart_pendulum", 4, 1)
         self.Parameters = namedtuple("Parameters", ["l", "m1", "m2", "b1", "b2"])
@@ -175,10 +177,10 @@ class CartPendulum(BaseSystem):
             alpha=alpha,
         )
 
-    def constraints(self, x, u):
+    def constraints(self, x):
         h1 = x[0]
         h2 = x[1] - cs.pi
-        h3 = 0 
+        h3 = 0
         h4 = 0
 
         return cs.vertcat(h1, h2, h3, h4)
@@ -208,6 +210,7 @@ class Pendubot(BaseSystem):
         f(): System dynamics using manipulator equations
         draw_frame(): Renders double pendulum visualization
     """
+
     def __init__(self):
         super().__init__("pendubot", 4, 1)
         self.Parameters = namedtuple("Parameters", ["m1", "m2", "I1", "I2", "l1", "l2", "d1", "d2", "fr1", "fr2"])
@@ -292,6 +295,7 @@ class Uav(BaseSystem):
         f(): 6-DOF rigid body dynamics with thrust forces
         draw_frame(): Renders UAV with thrust vectors
     """
+
     def __init__(self):
         super().__init__("uav", 6, 2)
         self.Parameters = namedtuple("Parameters", ["m", "I", "fr_x", "fr_z", "fr_theta", "width"])

@@ -32,9 +32,7 @@ def initialize_system():
     # Define cost matrices
     Q = np.eye(n) * 0
     R = np.eye(m) * 0.01
-    Q_terminal = (
-        np.eye(n) * 10000
-    )  # terminal cost matrix (large penalty at terminal state)
+    Q_terminal = np.eye(n) * 10000  # terminal cost matrix (large penalty at terminal state)
 
     # Define the target terminal state based on the model type
     if mod.name == "cart_pendulum":
@@ -93,12 +91,8 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     funcs = dict()
     funcs["L"] = cs.Function("L", [X, U], [L_expr], {"post_expand": True})
     # Note: we pass the same lam_sym and mu_sym as inputs for consistency
-    funcs["L_lag"] = cs.Function(
-        "L_lag", [X, U, lam_sym, mu_sym], [L_lag_expr], {"post_expand": True}
-    )
-    funcs["L_lag_forward"] = cs.Function(
-        "L_lag_forward", [X, U, mu_sym], [L_lag_forward], {"post_expand": True}
-    )
+    funcs["L_lag"] = cs.Function("L_lag", [X, U, lam_sym, mu_sym], [L_lag_expr], {"post_expand": True})
+    funcs["L_lag_forward"] = cs.Function("L_lag_forward", [X, U, mu_sym], [L_lag_forward], {"post_expand": True})
 
     funcs["L_terminal"] = cs.Function("L_terminal", [X], [L_terminal_expr], {"post_expand": True})
     funcs["Lx_lag_forward"] = cs.Function(
@@ -140,12 +134,10 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     )
 
     # Derivatives for the terminal cost
-    funcs["L_terminal_x"] = cs.Function("L_terminal_x", [X],
-                                        [cs.jacobian(L_terminal_expr, X)],
-                                        {"post_expand": True})
-    funcs["L_terminal_xx"] = cs.Function("L_terminal_xx", [X],
-                                         [cs.jacobian(cs.jacobian(L_terminal_expr, X), X)],
-                                         {"post_expand": True})
+    funcs["L_terminal_x"] = cs.Function("L_terminal_x", [X], [cs.jacobian(L_terminal_expr, X)], {"post_expand": True})
+    funcs["L_terminal_xx"] = cs.Function(
+        "L_terminal_xx", [X], [cs.jacobian(cs.jacobian(L_terminal_expr, X), X)], {"post_expand": True}
+    )
 
     # ----------------------------
     # Dynamics
@@ -153,32 +145,18 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     # Discrete dynamics: f(x,u) = x + dt * f_cont(x,u)
     f_expr = X + dt * mod.f(X, U)
     funcs["f"] = cs.Function("f", [X, U], [f_expr], {"post_expand": True})
-    funcs["fx"] = cs.Function(
-        "fx", [X, U], [cs.jacobian(f_expr, X)], {"post_expand": True}
-    )
-    funcs["fu"] = cs.Function(
-        "fu", [X, U], [cs.jacobian(f_expr, U)], {"post_expand": True}
-    )
+    funcs["fx"] = cs.Function("fx", [X, U], [cs.jacobian(f_expr, X)], {"post_expand": True})
+    funcs["fu"] = cs.Function("fu", [X, U], [cs.jacobian(f_expr, U)], {"post_expand": True})
 
     # ----------------------------
     # Constraints and their derivatives
     # ----------------------------
     funcs["h"] = cs.Function("h", [X, U], [h_expr], {"post_expand": True})
-    funcs["hx"] = cs.Function(
-        "hx", [X, U], [cs.jacobian(h_expr, X)], {"post_expand": True}
-    )
-    funcs["hu"] = cs.Function(
-        "hu", [X, U], [cs.jacobian(h_expr, U)], {"post_expand": True}
-    )
-    funcs["hxx"] = cs.Function(
-        "hxx", [X, U], [cs.jacobian(cs.jacobian(h_expr, X), X)], {"post_expand": True}
-    )
-    funcs["huu"] = cs.Function(
-        "huu", [X, U], [cs.jacobian(cs.jacobian(h_expr, U), U)], {"post_expand": True}
-    )
-    funcs["hux"] = cs.Function(
-        "hux", [X, U], [cs.jacobian(cs.jacobian(h_expr, U), X)], {"post_expand": True}
-    )
+    funcs["hx"] = cs.Function("hx", [X, U], [cs.jacobian(h_expr, X)], {"post_expand": True})
+    funcs["hu"] = cs.Function("hu", [X, U], [cs.jacobian(h_expr, U)], {"post_expand": True})
+    funcs["hxx"] = cs.Function("hxx", [X, U], [cs.jacobian(cs.jacobian(h_expr, X), X)], {"post_expand": True})
+    funcs["huu"] = cs.Function("huu", [X, U], [cs.jacobian(cs.jacobian(h_expr, U), U)], {"post_expand": True})
+    funcs["hux"] = cs.Function("hux", [X, U], [cs.jacobian(cs.jacobian(h_expr, U), X)], {"post_expand": True})
 
     return funcs
 
@@ -227,8 +205,8 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         # huu_eval = funcs["huu"](x_i, u_i)
         # hux_eval = funcs["hux"](x_i, u_i)
 
-        Imu = np.zeros((2, 2))
-        for j in range(2):
+        Imu = np.zeros((4, 4))
+        for j in range(4):
             Imu[j, j] = mu_val if (h_eval[j] >= 0 or lambda_val[j] != 0) else 0
 
         Qx = (
@@ -272,17 +250,13 @@ def backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx):
         K[i] = -Quu_inv @ Qux
 
         # Update the value function and its derivatives
-        V[i] = (
-            V[i + 1] - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]
-        )  # Scianca's code q = V[i+1]
+        V[i] = V[i + 1] - 0.5 * np.array(cs.evalf(k[i].T @ Quu @ k[i])).flatten()[0]  # Scianca's code q = V[i+1]
         Vx[:, i] = np.array(Qx - K[i].T @ Quu @ k[i]).flatten()
         Vxx[:, :, i] = Qxx - K[i].T @ Quu @ K[i]
     return k, K, V, Vx, Vxx
 
 
-def forward_pass(
-    x_old, u_old, k, K, N, max_line_search_iters, funcs, lambda_val, mu_val, prev_cost
-):
+def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, lambda_val, mu_val, prev_cost):
     """
     Performs the forward pass with a line search to update the state and control trajectories.
 
@@ -323,9 +297,7 @@ def forward_pass(
             dx = xnew[:, i] - x_old[:, i]
             # print("different along x: ", dx)
             # Calculate the new control law: u_new = u_old + alpha*k + K*(x_new - x_old)
-            unew[:, i] = np.array(
-                u_old[:, i] + alpha * k[i].full().flatten() + K[i].full() @ dx
-            ).flatten()
+            unew[:, i] = np.array(u_old[:, i] + alpha * k[i].full().flatten() + K[i].full() @ dx).flatten()
             # Propagate the dynamics to obtain the new state trajectory
             xnew[:, i + 1] = np.array(funcs["f"](xnew[:, i], unew[:, i])).flatten()
             new_cost += float(funcs["L_lag_forward"](xnew[:, i], unew[:, i], mu_val))
@@ -337,7 +309,7 @@ def forward_pass(
             print("Nuovo costo vs old:", new_cost, prev_cost)
             return xnew, unew, new_cost, alpha
         else:
-            #print("Il nuovo costo è maggiore")
+            # print("Il nuovo costo è maggiore")
             alpha /= 2.0  # reduce step size if cost did not decrease
 
     # If no reduction is found, return the last computed trajectories
@@ -345,9 +317,7 @@ def forward_pass(
     return x_old, u_old, new_cost, alpha
 
 
-def update_multipliers(
-    x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, beta, k_mu, N
-):
+def update_multipliers(x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, beta, k_mu, N):
     """
     Updates the multipliers (λ) and the penalty parameter (μ) based on the constraint violation
     and the gradient of the augmented Lagrangian.
@@ -372,19 +342,13 @@ def update_multipliers(
     if Lgrad < omega:
         print("Lgrad < omega")
         # Evaluate the constraint violation at the terminal time
-        norm_cons = np.linalg.norm(
-            np.array(funcs["h"](x_traj[:, N], u_traj[:, N - 1])), np.inf
-        )
+        norm_cons = np.linalg.norm(np.array(funcs["h"](x_traj[:, N], u_traj[:, N - 1])), np.inf)
         print(norm_cons)
         print(Lgrad)
         if norm_cons < eta:
             print("norm_cons < eta")
             # Update the multipliers if constraints are sufficiently satisfied
-            lambda_val = (
-                lambda_val
-                + mu_val
-                * np.array(funcs["h"](x_traj[:, N], u_traj[:, N - 1])).flatten()
-            )
+            lambda_val = lambda_val + mu_val * np.array(funcs["h"](x_traj[:, N], u_traj[:, N - 1])).flatten()
             eta /= mu_val**beta
             omega /= mu_val
         else:
@@ -396,9 +360,7 @@ def update_multipliers(
 
 def main():
     # Initialize the system parameters and symbolic functions
-    mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target = (
-        initialize_system()
-    )
+    mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target = initialize_system()
     funcs = setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal)
 
     # Initialize state and control trajectories
@@ -447,9 +409,7 @@ def main():
         lambda_history.append(np.linalg.norm(lambda_val, np.inf))
 
         # ----- Backward Pass -----
-        k, K, V, Vx, Vxx = backward_pass(
-            x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx
-        )
+        k, K, V, Vx, Vxx = backward_pass(x_traj, u_traj, N, funcs, lambda_val, mu_val, V, Vx, Vxx)
         bp_time = time.time() - bp_start
 
         # ----- Forward Pass with Line Search -----
