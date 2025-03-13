@@ -35,6 +35,7 @@ def initialize_system(model_name):
     n, m = mod.n, mod.m
     N = 100
     max_line_search_iters = 10
+    max_ddp_iters = 10
 
     # Define cost matrices
     Q = np.eye(n) * 0
@@ -51,7 +52,7 @@ def initialize_system(model_name):
     else:
         raise ValueError("Unrecognized model type")
 
-    return mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target
+    return mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target, max_ddp_iters   
 
 
 def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
@@ -216,9 +217,10 @@ def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, prev_cost)
     unew = np.zeros((m, N))
     xnew = np.zeros((n, N + 1))
     xnew[:, 0] = x_old[:, 0].copy()
+
     for _ in range(max_line_search_iters):
         new_cost = 0
-
+        
         for i in range(N):
             dx = xnew[:, i] - x_old[:, i]
             # Calculate the new control law: u_new = u_old + alpha*k + K*(x_new - x_old)
@@ -232,9 +234,10 @@ def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, prev_cost)
             return xnew, unew, new_cost, alpha
         else:
             alpha /= 2.0  # reduce step size if cost did not decrease
-
+    
     # If no reduction is found, return the last computed trajectories
     return x_old, u_old, new_cost, alpha
+
 
 def main():
 
@@ -244,7 +247,7 @@ def main():
     )
     args = parser.parse_args()
     # Initialize the system parameters and symbolic functions
-    mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target = initialize_system(args.model)
+    mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target, max_ddp_iters = initialize_system(args.model)
     funcs = setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal)
 
 
@@ -263,22 +266,37 @@ def main():
 
     total_time = 0
 
-
     # Main optimization loop
 
+    iters = 0
+    it_history = []
+    cost_history = []
 
+    for iters in range(max_ddp_iters):
     # ----- Backward Pass -----
-    bp_start = time.time()
-    k, K = backward_pass(x_traj, u_traj, N, n, funcs)
-    bp_time = time.time() - bp_start
+        bp_start = time.time()
+        k, K = backward_pass(x_traj, u_traj, N, n, funcs)
+        bp_time = time.time() - bp_start
+        
 
-    # ----- Forward Pass with Line Search -----
-    fp_start = time.time()
-    x_traj, u_traj, new_cost, _ = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
-    fp_time = time.time() - fp_start
+        # ----- Forward Pass with Line Search -----
 
-    total_time += bp_time + fp_time
+        fp_start = time.time()
+        x_traj, u_traj, new_cost, alpha  = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
+        fp_time = time.time() - fp_start
+        iters += 1
+        total_time += bp_time + fp_time
+        it_history.append(iters)
+        cost_history.append(new_cost)
+        
 
+        print('Iteration:', iter, 'BP Time:', round(bp_time*1000), 'FP Time:', round(fp_time*1000))
+
+
+    print('Total time: ', total_time*1000, ' ms')
+
+    print("it", it_history)
+    print("cost", cost_history)
 
     # Verify the result by simulating the trajectory using the obtained control sequence
     x_check = np.zeros_like(x_traj)
@@ -289,7 +307,12 @@ def main():
     # Animate and visualize the results using the model's animation function
     mod.animate(N, x_check, u_traj)
 
-
+    plt.figure()
+    plt.plot(it_history, cost_history, label="Cost")  # Ensure x-axis is iterations and y-axis is cost
+    plt.xlabel("Iterations")  # Label the x-axis
+    plt.ylabel("Cost")  # Label the y-axis
+    plt.legend()
+    plt.show()
 
 if __name__ == "__main__":
     main()

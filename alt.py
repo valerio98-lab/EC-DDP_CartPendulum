@@ -357,7 +357,11 @@ def main():
     beta = 0.5
     k_mu = 1
     eta_threshold = 0.5
-    omega_threshold = 16
+
+    if args.model == "cart_pendulum":
+        omega_threshold = 16                          #NOTE that the threshold is different for each model and ALSO based on how many variables you constraint, the convergence changes! For example, in the cart_pendulum, if you use only h1 and h2 omega_thr= 16, if you use h1, h2, h3, h4 omega_thr= 28 (minimum) and the convergence is not so good.
+    elif args.model == "pendubot":
+        omega_threshold = 21                          #
 
     # Lists to store the history of μ and the norm of λ
     mu_history = []
