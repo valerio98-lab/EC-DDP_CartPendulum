@@ -369,9 +369,12 @@ def main():
 
     total_time = 0
     iteration = 0
+    it_history = []
+    cost_history = []
 
     # Main optimization loop
     while omega > omega_threshold:
+
         iteration += 1
         mu_history.append(mu_val)
         lambda_history.append(np.linalg.norm(lambda_val, np.inf))
@@ -406,9 +409,14 @@ def main():
             f"grad_L: {infinite_norm_lag:.4f} | ||h(x)||: {np.linalg.norm(np.array(funcs['h'](x_traj[:, N])), np.inf):.4f} | "
             f"eta: {eta:.4f} | omega: {omega:.4f} | mu: {mu_val:.4f}"
         )
+        it_history.append(iteration)
+        cost_history.append(cost)
+        
 
     print(f"Total time: {total_time*1000:.2f} ms")
-
+    cost_history = np.array(cost_history).flatten().tolist()
+    print("it", it_history)
+    print("cost", cost_history)
     # Verify the result by simulating the trajectory using the obtained control sequence
     x_check = np.zeros_like(x_traj)
     x_check[:, 0] = np.zeros(n)
@@ -419,9 +427,9 @@ def main():
     mod.animate(N, x_check, u_traj)
 
     plt.figure()
-    plt.plot(mu_history, label="mu")
-    plt.plot(lambda_history, label="||lambda||")
-    plt.xlabel("Iteration")
+    plt.plot(it_history, cost_history, label="Cost")  # Ensure x-axis is iterations and y-axis is cost
+    plt.xlabel("Iterations")  # Label the x-axis
+    plt.ylabel("Cost")  # Label the y-axis
     plt.legend()
     plt.show()
 

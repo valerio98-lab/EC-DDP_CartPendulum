@@ -278,17 +278,16 @@ def main():
         k, K = backward_pass(x_traj, u_traj, N, n, funcs)
         bp_time = time.time() - bp_start
         
-
         # ----- Forward Pass with Line Search -----
 
         fp_start = time.time()
         x_traj, u_traj, new_cost, alpha  = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
         fp_time = time.time() - fp_start
-        iters += 1
+
         total_time += bp_time + fp_time
+        iters += 1
         it_history.append(iters)
         cost_history.append(new_cost)
-        
 
         print('Iteration:', iter, 'BP Time:', round(bp_time*1000), 'FP Time:', round(fp_time*1000))
 
