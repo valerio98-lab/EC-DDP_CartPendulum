@@ -5,6 +5,7 @@ import time
 import model
 import argparse
 
+
 def initialize_system(model_name):
     """
     Initializes the system parameters and optimization settings.
@@ -21,7 +22,6 @@ def initialize_system(model_name):
         x_target        : target terminal state (depending on the model type)
     """
 
-
     if model_name == "cart_pendulum":
         mod = model.CartPendulum()
     elif model_name == "pendubot":
@@ -30,7 +30,7 @@ def initialize_system(model_name):
         mod = model.Uav()
     else:
         raise ValueError("Invalid model name. Choose from 'cart_pendulum', 'pendubot', or 'uav'.")
-    
+
     dt = 0.01
     n, m = mod.n, mod.m
     N = 100
@@ -52,7 +52,7 @@ def initialize_system(model_name):
     else:
         raise ValueError("Unrecognized model type")
 
-    return mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target, max_ddp_iters   
+    return mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target, max_ddp_iters
 
 
 def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
@@ -105,7 +105,6 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     funcs["h"] = cs.Function("h", [X], [h_expr], {"post_expand": True})
     funcs["hx"] = cs.Function("hx", [X], [cs.jacobian(h_expr, X)], {"post_expand": True})
     funcs["hu"] = cs.Function("hu", [X], [cs.jacobian(h_expr, U)], {"post_expand": True})
-
 
     # ----------------------------
     # Dynamics
@@ -163,29 +162,24 @@ def backward_pass(x_traj, u_traj, N, n, funcs):
         fx_eval = funcs["fx"](x_i, u_i)
         fu_eval = funcs["fu"](x_i, u_i)
 
-        Qx = np.array(funcs["Lx"](x_i, u_i)).T + fx_eval.T @ Vx[:, i + 1] 
+        Qx = np.array(funcs["Lx"](x_i, u_i)).T + fx_eval.T @ Vx[:, i + 1]
 
-        Qu = (
-            np.array(funcs["Lu"](x_i, u_i)).T + fu_eval.T @ Vx[:, i + 1] 
-        )  # substitute * with @ so Qu returns 1x1
+        Qu = np.array(funcs["Lu"](x_i, u_i)).T + fu_eval.T @ Vx[:, i + 1]  # substitute * with @ so Qu returns 1x1
 
-        Qxx = (
-            funcs["Lxx"](x_i, u_i) + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval 
-        )  # +(mu_val * hx_eval.T @ hx_eval))
+        Qxx = funcs["Lxx"](x_i, u_i) + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval  # +(mu_val * hx_eval.T @ hx_eval))
 
-        Quu = funcs["Luu"](x_i, u_i) + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval 
+        Quu = funcs["Luu"](x_i, u_i) + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval
 
-        Qux = funcs["Lux"](x_i, u_i) + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval 
-
+        Qux = funcs["Lux"](x_i, u_i) + fu_eval.T @ Vxx[:, :, i + 1] @ fx_eval
 
         Quu_inv = np.linalg.inv(Quu)
         k[i] = -Quu_inv @ Qu
         K[i] = -Quu_inv @ Qux
 
         # Update the value function and its derivatives
-        V[i] = V[i+1] - 0.5 * k[i].T @ Quu @ k[i]
-        Vx[:,i] = np.array(Qx - K[i].T @ Quu @ k[i]).flatten()
-        Vxx[:,:,i] = Qxx - K[i].T @ Quu @ K[i]
+        V[i] = V[i + 1] - 0.5 * k[i].T @ Quu @ k[i]
+        Vx[:, i] = np.array(Qx - K[i].T @ Quu @ k[i]).flatten()
+        Vxx[:, :, i] = Qxx - K[i].T @ Quu @ K[i]
     return k, K
 
 
@@ -220,7 +214,7 @@ def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, prev_cost)
 
     for _ in range(max_line_search_iters):
         new_cost = 0
-        
+
         for i in range(N):
             dx = xnew[:, i] - x_old[:, i]
             # Calculate the new control law: u_new = u_old + alpha*k + K*(x_new - x_old)
@@ -234,27 +228,32 @@ def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, prev_cost)
             return xnew, unew, new_cost, alpha
         else:
             alpha /= 2.0  # reduce step size if cost did not decrease
-    
+
     # If no reduction is found, return the last computed trajectories
     return x_old, u_old, new_cost, alpha
 
 
-def main():
+def main(model=None):
 
-    parser = argparse.ArgumentParser(description="Run the Augmented Lagrangian Trajectory Optimization")
-    parser.add_argument(
-        "--model", type=str, choices=["cart_pendulum", "pendubot", "uav"], required=True, help="Model type to simulate"
-    )
-    args = parser.parse_args()
+    if model is None:
+        parser = argparse.ArgumentParser(description="Run the DDP Trajectory Optimization")
+        parser.add_argument(
+            "--model",
+            type=str,
+            choices=["cart_pendulum", "pendubot", "uav"],
+            required=True,
+            help="Model type to simulate",
+        )
+        args = parser.parse_args()
+        model = args.model
+
     # Initialize the system parameters and symbolic functions
-    mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target, max_ddp_iters = initialize_system(args.model)
+    mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target, max_ddp_iters = initialize_system(model)
     funcs = setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal)
-
 
     x_traj = np.zeros((n, N + 1))
     u_traj = np.ones((m, N))
     x_traj[:, 0] = np.zeros(n)  # initial state
-
 
     # Compute the initial cost along the trajectory
     cost = 0
@@ -263,7 +262,6 @@ def main():
         cost += float(funcs["L"](x_traj[:, i], u_traj[:, i]))
     cost += float(funcs["L_terminal"](x_traj[:, N]))
 
-
     total_time = 0
 
     # Main optimization loop
@@ -271,17 +269,18 @@ def main():
     iters = 0
     it_history = []
     cost_history = []
+    constraint_history = []
 
     for iters in range(max_ddp_iters):
-    # ----- Backward Pass -----
+        # ----- Backward Pass -----
         bp_start = time.time()
         k, K = backward_pass(x_traj, u_traj, N, n, funcs)
         bp_time = time.time() - bp_start
-        
+
         # ----- Forward Pass with Line Search -----
 
         fp_start = time.time()
-        x_traj, u_traj, new_cost, alpha  = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
+        x_traj, u_traj, new_cost, alpha = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
         fp_time = time.time() - fp_start
 
         total_time += bp_time + fp_time
@@ -289,10 +288,20 @@ def main():
         it_history.append(iters)
         cost_history.append(new_cost)
 
-        print('Iteration:', iter, 'BP Time:', round(bp_time*1000), 'FP Time:', round(fp_time*1000))
+        constraint_norm = np.linalg.norm(np.array(funcs["h"](x_traj[:, N])), np.inf)
+        constraint_history.append(constraint_norm)
+        print(
+            "Iteration:",
+            iters,
+            "BP Time:",
+            round(bp_time * 1000),
+            "FP Time:",
+            round(fp_time * 1000),
+            "| ||h(x)||:",
+            constraint_norm,
+        )
 
-
-    print('Total time: ', total_time*1000, ' ms')
+    print("Total time: ", total_time * 1000, " ms")
 
     print("it", it_history)
     print("cost", cost_history)
@@ -304,15 +313,30 @@ def main():
         x_check[:, i + 1] = np.array(funcs["f"](x_check[:, i], u_traj[:, i])).flatten()
 
     # Animate and visualize the results using the model's animation function
-    mod.animate(N, x_check, u_traj)
+    mod.animate("ddp simulation", N, x_check, u_traj)
 
-    plt.figure()
-    plt.plot(it_history, cost_history, label="Cost")  # Ensure x-axis is iterations and y-axis is cost
-    plt.xlabel("Iterations")  # Label the x-axis
-    plt.ylabel("Cost")  # Label the y-axis
-    plt.legend()
+    _, axs = plt.subplots(1, 3, figsize=(12, 3))
+    axs[0].set_title("Cost DDP")
+    axs[1].set_title("Constraint Satisfaction DDP")
+
+    axs[0].plot(it_history, cost_history, label="Cost")
+    axs[0].set_xlabel("Iterations")
+    axs[0].set_ylabel("Cost")
+    axs[0].legend()
+    axs[0].grid(True)
+
+    axs[1].plot(it_history, constraint_history, label="Constraint norm", color="red")
+    axs[1].set_xlabel("Iterations")
+    axs[1].set_ylabel("||h(x)||")
+    axs[1].legend()
+    axs[1].grid(True)
+
+    axs[2].axis("off")
+    axs[2].text(0.5, 0.5, f"Total execution time:\n{total_time*1000:.2f} ms", ha="center", va="center", fontsize=14)
+
+    plt.tight_layout()
     plt.show()
+
 
 if __name__ == "__main__":
     main()
-

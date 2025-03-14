@@ -54,6 +54,7 @@ class BaseSystem:
 
     def animate(
         self,
+        title,
         N_sim,
         x,
         u,
@@ -67,6 +68,7 @@ class BaseSystem:
     ):
 
         self.setup_animation(N_sim, x, u, save_frames)
+        plt.gcf().canvas.manager.set_window_title(title)
         if x_pred is not None:
             x_pred.append(x_pred[-1])  # replicate last prediction to avoid crash
 
@@ -180,8 +182,8 @@ class CartPendulum(BaseSystem):
     def constraints(self, x):
         h1 = x[0]
         h2 = x[1] - cs.pi
-        h3 = 0                                                  #READ in main for more details about constraints h3 and h4
-        h4 = 0
+        h3 = x[2]  # READ in main for more details about constraints h3 and h4
+        h4 = x[3]
 
         return cs.vertcat(h1, h2, h3, h4)
 
@@ -266,12 +268,12 @@ class Pendubot(BaseSystem):
         ax.plot(np.array((p1[0], p2[0])), np.array((p1[1], p2[1])), color="blue", alpha=alpha)
         ax.add_patch(plt.Circle(p1, self.p.l1 / 10, color="green", alpha=alpha))
         ax.add_patch(plt.Circle(p2, self.p.l1 / 10, color="green", alpha=alpha))
-    
+
     def constraints(self, x):
-        h1 = x[0] - cs.pi                       # θ1 and θ2 should be equal to zero in order to constraint the Pendubot to be vertical 
-        h2 = x[1] 
+        h1 = x[0] - cs.pi  # θ1 and θ2 should be equal to zero in order to constraint the Pendubot to be vertical
+        h2 = x[1]
         h3 = 0
-        h4 = 0                                  #READ in main for more details about constraints h3 and h4
+        h4 = 0  # READ in main for more details about constraints h3 and h4
 
         return cs.vertcat(h1, h2, h3, h4)
 
