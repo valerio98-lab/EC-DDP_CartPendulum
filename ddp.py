@@ -315,7 +315,7 @@ def main(model=None):
     # Animate and visualize the results using the model's animation function
     mod.animate("ddp simulation", N, x_check, u_traj)
 
-    _, axs = plt.subplots(1, 3, figsize=(12, 3))
+    _, axs = plt.subplots(1, 4, figsize=(12, 3))
     axs[0].set_title("Cost DDP")
     axs[1].set_title("Constraint Satisfaction DDP")
 
@@ -332,7 +332,10 @@ def main(model=None):
     axs[1].grid(True)
 
     axs[2].axis("off")
-    axs[2].text(0.5, 0.5, f"Total execution time:\n{total_time*1000:.2f} ms", ha="center", va="center", fontsize=14)
+    axs[2].text(0.5, 0.5, f"Total execution time:\n{total_time*1000:.2f} ms", ha="center", va="center", fontsize=12)
+
+    axs[3].axis("off")
+    axs[3].text(0.5, 0.5, f"Constraint satisfaction:\n{constraint_norm:.2f}", ha="center", va="center", fontsize=12)
 
     plt.tight_layout()
     plt.show()

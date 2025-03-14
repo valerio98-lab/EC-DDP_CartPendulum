@@ -65,10 +65,12 @@ def _compute_cost(x_traj, u_traj, mu_val, funcs, N):
     return cost
 
 
-def _animate_trajectory(mod, N, x_check, u_traj, it_history, cost_history, constraint_history, total_time):
+def _animate_trajectory(
+    mod, N, x_check, u_traj, it_history, cost_history, constraint_history, total_time, constraint_norm
+):
     mod.animate("ec-ddp simulation", N, x_check, u_traj)
 
-    _, axs = plt.subplots(1, 3, figsize=(12, 3))
+    _, axs = plt.subplots(1, 4, figsize=(12, 3))
     axs[0].set_title("Cost EC-DDP")
     axs[1].set_title("Constraint Satisfaction EC-DDP")
 
@@ -85,7 +87,10 @@ def _animate_trajectory(mod, N, x_check, u_traj, it_history, cost_history, const
     axs[1].grid(True)
 
     axs[2].axis("off")
-    axs[2].text(0.5, 0.5, f"Total execution time:\n{total_time*1000:.2f} ms", ha="center", va="center", fontsize=14)
+    axs[2].text(0.5, 0.5, f"Total execution time:\n{total_time*1000:.2f} ms", ha="center", va="center", fontsize=12)
+
+    axs[3].axis("off")
+    axs[3].text(0.5, 0.5, f"Constraint satisfaction:\n{constraint_norm:.2f}", ha="center", va="center", fontsize=12)
 
     plt.tight_layout()
     plt.show()
@@ -183,7 +188,11 @@ def main(model=None):
     for i in range(N):
         x_check[:, i + 1] = np.array(funcs["f"](x_check[:, i], u_traj[:, i])).flatten()
 
-    _animate_trajectory(mod, N, x_check, u_traj, it_history, cost_history, constraint_history, total_time)
+    constraint_norm = np.linalg.norm(np.array(funcs["h"](x_check[:, N])), np.inf)
+
+    _animate_trajectory(
+        mod, N, x_check, u_traj, it_history, cost_history, constraint_history, total_time, constraint_norm
+    )
 
 
 if __name__ == "__main__":
