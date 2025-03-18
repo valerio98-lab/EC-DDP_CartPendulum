@@ -5,8 +5,8 @@ import ddp
 import logging
 
 
-def run_simulation(sim_module, model_arg):
-    sim_module.main(model_arg)
+def run_simulation(main, model_arg):
+    main(model_arg)
 
 
 if __name__ == "__main__":
@@ -29,8 +29,8 @@ if __name__ == "__main__":
     arg_ddp = args.ddp_model if args.model is None else args.model
     arg_ec_ddp = args.ec_ddp_model if args.model is None else args.model
 
-    p1 = Process(target=run_simulation, args=(ec_ddp, arg_ec_ddp))
-    p2 = Process(target=run_simulation, args=(ddp, arg_ddp))
+    p1 = Process(target=run_simulation, args=(ec_ddp.main, arg_ec_ddp))
+    p2 = Process(target=run_simulation, args=(ddp.main, arg_ddp))
 
     p1.start()
     p2.start()
