@@ -29,13 +29,13 @@ def _update_multipliers(x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, b
     # Evaluate the gradient at the terminal time using the last control input (N-1)
     lag_matrix = []
 
-    for index in range(u_traj.shape[1]):
-        Lgrad = funcs["Lx_lag"](x_traj[:, index + 1], u_traj[:, index], lambda_val, mu_val).full()
-        lag_matrix.append(Lgrad)
+    # for index in range(u_traj.shape[1]):
+    #     Lgrad = funcs["Lx_lag"](x_traj[:, index + 1], u_traj[:, index], mu_val).full()
+    #     lag_matrix.append(Lgrad)
 
-    lag_matrix = np.array(lag_matrix)
-    lag_matrix = lag_matrix.reshape(lag_matrix.shape[0], lag_matrix.shape[2])
-    infinite_norm_lag = np.linalg.norm(lag_matrix, np.inf)
+    # lag_matrix = np.array(lag_matrix)
+    # lag_matrix = lag_matrix.reshape(lag_matrix.shape[0], lag_matrix.shape[2])
+    infinite_norm_lag = np.linalg.norm(funcs["Lx_lag"](x_traj[:, N], u_traj[:, N - 1], lambda_val, mu_val), np.inf)
 
     if infinite_norm_lag < omega:
         # Evaluate the constraint violation at the terminal time
@@ -52,7 +52,7 @@ def _update_multipliers(x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, b
 
             # Increase the penalty parameter if constraints are not satisfied enough
             mu_val *= k_mu
-            pass
+
     return lambda_val, mu_val, eta, omega, infinite_norm_lag
 
 
@@ -109,12 +109,12 @@ def ec_ddp_algorithm(model):
     x_traj[:, 0] = np.zeros(n)  # initial state
     lambda_val = np.zeros(h_dim)
     mu_val = 1.1
-    eta = 2
-    omega = 200
-    omega_threshold = 125 if model == "cart_pendulum" else 80  # 60 for pendubot if you constrained also h3 and h4
+    eta = 0.3 if model == "cart_pendulum" else 0.1
+    omega = 3 if model == "cart_pendulum" else 0.8
+    omega_threshold = 2.04 if model == "cart_pendulum" else 0.46
     beta = 0.5
-    k_mu = 1
-    eta_threshold = 0.5
+    k_mu = 1.05 if model == "cart_pendulum" else 1.1
+    eta_threshold = 0.05
 
     total_time = 0
     iteration = 0

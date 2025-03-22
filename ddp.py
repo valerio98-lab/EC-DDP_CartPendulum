@@ -230,7 +230,7 @@ def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, prev_cost)
             alpha /= 2.0  # reduce step size if cost did not decrease
 
     # If no reduction is found, return the last computed trajectories
-    return x_old, u_old, new_cost, alpha
+    return x_old, u_old, prev_cost, alpha
 
 
 def main(model=None):
@@ -280,13 +280,13 @@ def main(model=None):
         # ----- Forward Pass with Line Search -----
 
         fp_start = time.time()
-        x_traj, u_traj, new_cost, alpha = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
+        x_traj, u_traj, cost, alpha = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
         fp_time = time.time() - fp_start
 
         total_time += bp_time + fp_time
         iters += 1
         it_history.append(iters)
-        cost_history.append(new_cost)
+        cost_history.append(cost)
 
         constraint_norm = np.linalg.norm(np.array(funcs["h"](x_traj[:, N])), np.inf)
         constraint_history.append(constraint_norm)
