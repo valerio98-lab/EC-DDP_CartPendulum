@@ -5,14 +5,12 @@ A reimplementation of **Equality Constrained Differential Dynamic Programming (E
 - **DDP with equality constraints** using the **Augmented Lagrangian** formulation.
 - **Two strategies for handling Lagrange multipliers**:
   - **Globally constant multipliers** (classic augmented Lagrangian method).
-  - **Affine multipliers w.r.t. state** (providing a feedback term for robustness).
+  - **Affine multipliers w.r.t. state** (TODO).
 - **Designed for optimal control in robotics** with complex dynamics.
-- **Efficient implementation** with optimized backward and forward passes.
 
 ## Repository Structure
-- `ec_ddp.py` → Core implementation of **EC-DDP** with both multiplier strategies.
-- `examples/` → Sample use cases for **cartpole** and **robotic arms**.
-- `tests/` → Unit tests to validate algorithm correctness.
+- `ec_ddp/src/ec_ddp.py` → Core implementation of **EC-DDP** with both multiplier strategies.
+- `ddp.py` → Implementation of **DDP** for comparison purposes.
 
 ## Installation
 Clone the repository and install dependencies:
@@ -22,11 +20,15 @@ cd EC-DDP_CartPendulum
 pip install -r requirements.txt
 ```
 
-<!--## 🔧 Quick Example
+## Test
+You can easily execute in parallel two simulations:
 ```bash
-from ec_ddp import EC_DDP
+python main.py --model cart_pendulum
+```
+This command will execute an ec-ddp and ddp simulation on cart pendulum. 
 
-# Define dynamics, cost function, and constraints
-ddp_solver = EC_DDP(dynamics, cost_function, constraints)
-optimal_trajectory = ddp_solver.solve(initial_state, initial_control)
-```-->
+Eventually it can be executed a parallel simulation on different systems:
+```bash
+python main.py --ddp_model cart_pendulum --ec_ddp_model pendubot
+``` 
+
