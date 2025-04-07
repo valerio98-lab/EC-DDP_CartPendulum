@@ -26,9 +26,9 @@ def backward_pass(x_traj, u_traj, N, n, funcs, lambda_val, mu_val):
     # Terminal conditions: at time step N, use the terminal cost
     x_N = x_traj[:, N]
 
-    V[N] = funcs["L_terminal"](x_N) + (lambda_val + (0.5 * mu_val) * funcs["h"](x_N)).T @ funcs["h"](x_N)
-    Vx[:, N] = funcs["L_terminal_x"](x_N) + (lambda_val + mu_val * funcs["h"](x_N)).T @ funcs["hx"](x_N)
-    Vxx[:, :, N] = funcs["L_terminal_xx"](x_N) + (lambda_val + mu_val * funcs["hx"](x_N)).T @ funcs["hx"](x_N)
+    V[N] = funcs["L_terminal"](x_N) 
+    Vx[:, N] = funcs["L_terminal_x"](x_N)
+    Vxx[:, :, N] = funcs["L_terminal_xx"](x_N)
 
     m = u_traj.shape[0]
     n = x_traj.shape[0]
@@ -73,6 +73,7 @@ def backward_pass(x_traj, u_traj, N, n, funcs, lambda_val, mu_val):
             + mu_val / 2 * float(cs.sumsqr(h_eval))
         )
 
+        
         Quu_inv = np.linalg.inv(Quu)
         k[i] = -Quu_inv @ Qu
         K[i] = -Quu_inv @ Qux
@@ -123,9 +124,8 @@ def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, mu_val, pr
             new_cost += float(funcs["L_aug_lag"](xnew[:, i], unew[:, i], mu_val))
         new_cost += float(funcs["L_terminal"](xnew[:, N]))
 
-        if new_cost < prev_cost:
+        if new_cost < prev_cost:   
             return xnew, unew, new_cost, alpha
         else:
             alpha /= 2.0
-
     return x_old, u_old, prev_cost, alpha

@@ -104,11 +104,13 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     L_aug_lag = L_expr + (mu_sym / 2) * cs.sumsqr(h_expr)
 
     funcs["L_aug_lag"] = cs.Function("L_aug_lag", [X, U, mu_sym], [L_aug_lag], {"post_expand": True})
+    funcs["L_lag_expr"] = cs.Function("L_lag_expr", [X, U, lam_sym, mu_sym], [L_lag_expr], {"post_expand": True})
 
     # Create derivative functions for the augmented cost
     funcs["Lx_lag"] = cs.Function(
         "Lx_lag", [X, U, lam_sym, mu_sym], [cs.jacobian(L_lag_expr, X)], {"post_expand": True}
     )
+
 
     # Discrete dynamics: f(x,u) = x + dt * f_cont(x,u)
     f_expr = X + dt * mod.f(X, U)

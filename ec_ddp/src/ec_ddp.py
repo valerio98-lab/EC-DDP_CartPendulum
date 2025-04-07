@@ -27,6 +27,7 @@ def _update_multipliers(x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, b
         Updated lambda_val, mu_val, eta, omega, and the gradient norm Lgrad.
     """
     # Evaluate the gradient at the terminal time using the last control input (N-1)
+   
     lag_matrix = []
 
     for index in range(u_traj.shape[1]):
@@ -39,7 +40,7 @@ def _update_multipliers(x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, b
 
     if infinite_norm_lag < omega:
         # Evaluate the constraint violation at the terminal time
-
+    
         cons_inf_norm = np.linalg.norm(funcs["h"](x_traj[:, N]).full(), np.inf)
 
         # print("infinite_norm_cons: ", cons_inf_norm)
@@ -60,7 +61,7 @@ def _compute_cost(x_traj, u_traj, mu_val, funcs, N):
     cost = 0
     for i in range(N):
         x_traj[:, i + 1] = np.array(funcs["f"](x_traj[:, i], u_traj[:, i])).flatten()
-        cost += float(funcs["L"](x_traj[:, i], u_traj[:, i]))
+        cost += float(funcs["L_aug_lag"](x_traj[:, i], u_traj[:, i], mu_val))
     cost += float(funcs["L_terminal"](x_traj[:, N]))
     return cost
 
@@ -107,20 +108,26 @@ def ec_ddp_algorithm(model):
     x_traj = np.zeros((n, N + 1))
     u_traj = np.ones((m, N))
     x_traj[:, 0] = np.zeros(n)  # initial state
+
     lambda_val = np.zeros(h_dim)
     mu_val = 1.1
     eta = 2
     omega = 200
     omega_threshold = 125 if model == "cart_pendulum" else 80  # 60 for pendubot if you constrained also h3 and h4
     beta = 0.5
-    k_mu = 1
+    k_mu = 1.0
     eta_threshold = 0.5
-
+    max_iters= 10
     total_time = 0
     iteration = 0
-    it_history = []
-    cost_history = []
-    constraint_history = []
+    it_history_ec_ddp = []
+    cost_history_ec_ddp = []
+    constraint_history_ec_ddp = []
+    omega_history = []
+    eta_history = []
+    infinite_norm_lag_history = []
+    mu_history = []
+    lambda_history = []
 
     # Compute the initial cost along the trajectory
     cost = _compute_cost(x_traj, u_traj, mu_val, funcs, N)
@@ -128,11 +135,9 @@ def ec_ddp_algorithm(model):
     while omega > omega_threshold and eta > eta_threshold:
 
         ## Update plots
-        constraint_norm = np.linalg.norm(np.array(funcs["h"](x_traj[:, N])), np.inf)
-        constraint_history.append(constraint_norm)
-
-        it_history.append(iteration)
-        cost_history.append(cost)
+        
+        it_history_ec_ddp.append(iteration)
+        cost_history_ec_ddp.append(cost)
 
         iteration += 1
 
@@ -146,9 +151,21 @@ def ec_ddp_algorithm(model):
 
         total_time += bp_time + fp_time
 
+   
+        lambda_history.append(lambda_val)
+
+        constraint_norm = np.linalg.norm(np.array(funcs["h"](x_traj[:, N])), np.inf)
+        constraint_history_ec_ddp.append(constraint_norm)
+      
         lambda_val, mu_val, eta, omega, infinite_norm_lag = _update_multipliers(
-            x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, beta, k_mu, N
+         x_traj, u_traj, funcs, lambda_val, mu_val, eta, omega, beta, k_mu, N
         )
+
+        omega_history.append(omega)
+        eta_history.append(eta)
+        infinite_norm_lag_history.append(infinite_norm_lag)
+        mu_history.append(mu_val)
+
 
         print(
             f"Iteration: {iteration:2d} | BP: {round(bp_time*1000):4d} ms | FP: {round(fp_time*1000):4d} ms | "
@@ -156,7 +173,7 @@ def ec_ddp_algorithm(model):
             f"eta: {eta:.4f} | omega: {omega:.4f} | mu: {mu_val:.4f}"
         )
 
-    return total_time, it_history, cost_history, constraint_history, x_traj, u_traj, funcs, mod, n, N
+    return total_time, it_history_ec_ddp, cost_history_ec_ddp, constraint_history_ec_ddp, x_traj, u_traj, funcs, mod, n, N, omega_history, eta_history, infinite_norm_lag_history, mu_history, lambda_history
 
 
 def main(model=None):
@@ -173,14 +190,23 @@ def main(model=None):
         args = parser.parse_args()
         model = args.model
 
-    total_time, it_history, cost_history, constraint_history, x_traj, u_traj, funcs, mod, n, N = ec_ddp_algorithm(
+    total_time, it_history_ec_ddp, cost_history_ec_ddp, constraint_history_ec_ddp, x_traj, u_traj, funcs, mod, n, N, omega_history, eta_history, infinite_norm_lag_history, mu_history , lambda_history= ec_ddp_algorithm(
         model
     )
 
     print(f"Total time: {total_time*1000:.2f} ms")
-    cost_history = np.array(cost_history).flatten().tolist()
-    print("it", it_history)
-    print("cost", cost_history)
+    cost_history_ec_ddp = np.array(cost_history_ec_ddp).flatten().tolist()
+    np.save("vectors_for_plots/cost_history_ec_ddp.npy", np.array(cost_history_ec_ddp))
+    np.save("vectors_for_plots/it_history_ec_ddp.npy", np.array(it_history_ec_ddp))
+    np.save("vectors_for_plots/constraint_history_ec_ddp.npy", np.array(constraint_history_ec_ddp))
+    np.save("vectors_for_pparameters/omega_history.npy", np.array(omega_history))
+    np.save("vectors_for_pparameters/eta_history.npy", np.array(eta_history))
+    np.save("vectors_for_pparameters/infinite_norm_lag_history.npy", np.array(infinite_norm_lag_history))
+    np.save("vectors_for_pparameters/mu_history.npy", np.array(mu_history))
+    np.save("vectors_for_pparameters/lambda_history.npy", np.array(lambda_history))
+
+
+    print("Saved cost history, constraint history and iteration history as NumPy arrays.")
 
     # Verify the result by simulating the trajectory using the obtained control sequence
     x_check = np.zeros_like(x_traj)
@@ -191,7 +217,7 @@ def main(model=None):
     constraint_norm = np.linalg.norm(np.array(funcs["h"](x_check[:, N])), np.inf)
 
     _animate_trajectory(
-        mod, N, x_check, u_traj, it_history, cost_history, constraint_history, total_time, constraint_norm
+        mod, N, x_check, u_traj, it_history_ec_ddp, cost_history_ec_ddp, constraint_history_ec_ddp, total_time, constraint_norm
     )
 
 
