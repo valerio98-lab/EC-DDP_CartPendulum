@@ -1,9 +1,11 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import casadi as cs
-import time
-import model
 import argparse
+import time
+
+import casadi as cs
+import matplotlib.pyplot as plt
+import numpy as np
+
+import model
 
 
 def initialize_system(model_name):
@@ -29,7 +31,9 @@ def initialize_system(model_name):
     elif model_name == "uav":
         mod = model.Uav()
     else:
-        raise ValueError("Invalid model name. Choose from 'cart_pendulum', 'pendubot', or 'uav'.")
+        raise ValueError(
+            "Invalid model name. Choose from 'cart_pendulum', 'pendubot', or 'uav'."
+        )
 
     dt = 0.01
     n, m = mod.n, mod.m
@@ -40,7 +44,9 @@ def initialize_system(model_name):
     # Define cost matrices
     Q = np.eye(n) * 0
     R = np.eye(m) * 0.01
-    Q_terminal = np.eye(n) * 10000  # terminal cost matrix (large penalty at terminal state)
+    Q_terminal = (
+        np.eye(n) * 10000
+    )  # terminal cost matrix (large penalty at terminal state)
 
     # Define the target terminal state based on the model type
     if mod.name == "cart_pendulum":
@@ -52,7 +58,19 @@ def initialize_system(model_name):
     else:
         raise ValueError("Unrecognized model type")
 
-    return mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target, max_ddp_iters
+    return (
+        mod,
+        dt,
+        n,
+        m,
+        N,
+        max_line_search_iters,
+        Q,
+        R,
+        Q_terminal,
+        x_target,
+        max_ddp_iters,
+    )
 
 
 def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
@@ -83,19 +101,36 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
 
     L_expr = (x_target - X).T @ Q @ (x_target - X) + U.T @ R @ U
     funcs["L"] = cs.Function("L", [X, U], [L_expr], {"post_expand": True})
-    funcs["Lx"] = cs.Function("Lx", [X, U], [cs.jacobian(L_expr, X)], {"post_expand": True})
-    funcs["Lu"] = cs.Function("Lu", [X, U], [cs.jacobian(L_expr, U)], {"post_expand": True})
-    funcs["Lxx"] = cs.Function("Lxx", [X, U], [cs.jacobian(cs.jacobian(L_expr, X), X)], {"post_expand": True})
-    funcs["Lux"] = cs.Function("Lux", [X, U], [cs.jacobian(cs.jacobian(L_expr, U), X)], {"post_expand": True})
-    funcs["Luu"] = cs.Function("Luu", [X, U], [cs.jacobian(cs.jacobian(L_expr, U), U)], {"post_expand": True})
+    funcs["Lx"] = cs.Function(
+        "Lx", [X, U], [cs.jacobian(L_expr, X)], {"post_expand": True}
+    )
+    funcs["Lu"] = cs.Function(
+        "Lu", [X, U], [cs.jacobian(L_expr, U)], {"post_expand": True}
+    )
+    funcs["Lxx"] = cs.Function(
+        "Lxx", [X, U], [cs.jacobian(cs.jacobian(L_expr, X), X)], {"post_expand": True}
+    )
+    funcs["Lux"] = cs.Function(
+        "Lux", [X, U], [cs.jacobian(cs.jacobian(L_expr, U), X)], {"post_expand": True}
+    )
+    funcs["Luu"] = cs.Function(
+        "Luu", [X, U], [cs.jacobian(cs.jacobian(L_expr, U), U)], {"post_expand": True}
+    )
 
     L_terminal_expr = (x_target - X).T @ Q_terminal @ (x_target - X)
-    funcs["L_terminal"] = cs.Function("L_terminal", [X], [L_terminal_expr], {"post_expand": True})
+    funcs["L_terminal"] = cs.Function(
+        "L_terminal", [X], [L_terminal_expr], {"post_expand": True}
+    )
 
     # Derivatives for the terminal cost
-    funcs["L_terminal_x"] = cs.Function("L_terminal_x", [X], [cs.jacobian(L_terminal_expr, X)], {"post_expand": True})
+    funcs["L_terminal_x"] = cs.Function(
+        "L_terminal_x", [X], [cs.jacobian(L_terminal_expr, X)], {"post_expand": True}
+    )
     funcs["L_terminal_xx"] = cs.Function(
-        "L_terminal_xx", [X], [cs.jacobian(cs.jacobian(L_terminal_expr, X), X)], {"post_expand": True}
+        "L_terminal_xx",
+        [X],
+        [cs.jacobian(cs.jacobian(L_terminal_expr, X), X)],
+        {"post_expand": True},
     )
 
     # ----------------------------
@@ -103,8 +138,12 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     # ----------------------------
     h_expr = mod.constraints(X)
     funcs["h"] = cs.Function("h", [X], [h_expr], {"post_expand": True})
-    funcs["hx"] = cs.Function("hx", [X], [cs.jacobian(h_expr, X)], {"post_expand": True})
-    funcs["hu"] = cs.Function("hu", [X], [cs.jacobian(h_expr, U)], {"post_expand": True})
+    funcs["hx"] = cs.Function(
+        "hx", [X], [cs.jacobian(h_expr, X)], {"post_expand": True}
+    )
+    funcs["hu"] = cs.Function(
+        "hu", [X], [cs.jacobian(h_expr, U)], {"post_expand": True}
+    )
 
     # ----------------------------
     # Dynamics
@@ -112,8 +151,12 @@ def setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal):
     # Discrete dynamics: f(x,u) = x + dt * f_cont(x,u)
     f_expr = X + dt * mod.f(X, U)
     funcs["f"] = cs.Function("f", [X, U], [f_expr], {"post_expand": True})
-    funcs["fx"] = cs.Function("fx", [X, U], [cs.jacobian(f_expr, X)], {"post_expand": True})
-    funcs["fu"] = cs.Function("fu", [X, U], [cs.jacobian(f_expr, U)], {"post_expand": True})
+    funcs["fx"] = cs.Function(
+        "fx", [X, U], [cs.jacobian(f_expr, X)], {"post_expand": True}
+    )
+    funcs["fu"] = cs.Function(
+        "fu", [X, U], [cs.jacobian(f_expr, U)], {"post_expand": True}
+    )
 
     return funcs
 
@@ -164,9 +207,13 @@ def backward_pass(x_traj, u_traj, N, n, funcs):
 
         Qx = np.array(funcs["Lx"](x_i, u_i)).T + fx_eval.T @ Vx[:, i + 1]
 
-        Qu = np.array(funcs["Lu"](x_i, u_i)).T + fu_eval.T @ Vx[:, i + 1]  # substitute * with @ so Qu returns 1x1
+        Qu = (
+            np.array(funcs["Lu"](x_i, u_i)).T + fu_eval.T @ Vx[:, i + 1]
+        )  # substitute * with @ so Qu returns 1x1
 
-        Qxx = funcs["Lxx"](x_i, u_i) + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval  # +(mu_val * hx_eval.T @ hx_eval))
+        Qxx = (
+            funcs["Lxx"](x_i, u_i) + fx_eval.T @ Vxx[:, :, i + 1] @ fx_eval
+        )  # +(mu_val * hx_eval.T @ hx_eval))
 
         Quu = funcs["Luu"](x_i, u_i) + fu_eval.T @ Vxx[:, :, i + 1] @ fu_eval
 
@@ -218,7 +265,9 @@ def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, prev_cost)
         for i in range(N):
             dx = xnew[:, i] - x_old[:, i]
             # Calculate the new control law: u_new = u_old + alpha*k + K*(x_new - x_old)
-            unew[:, i] = np.array(u_old[:, i] + alpha * k[i].full() + K[i].full() @ dx).flatten()
+            unew[:, i] = np.array(
+                u_old[:, i] + alpha * k[i].full() + K[i].full() @ dx
+            ).flatten()
             # Propagate the dynamics to obtain the new state trajectory
             xnew[:, i + 1] = np.array(funcs["f"](xnew[:, i], unew[:, i])).flatten()
             new_cost += float(funcs["L"](xnew[:, i], unew[:, i]))
@@ -234,9 +283,10 @@ def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, prev_cost)
 
 
 def main(model=None):
-
     if model is None:
-        parser = argparse.ArgumentParser(description="Run the DDP Trajectory Optimization")
+        parser = argparse.ArgumentParser(
+            description="Run the DDP Trajectory Optimization"
+        )
         parser.add_argument(
             "--model",
             type=str,
@@ -248,7 +298,19 @@ def main(model=None):
         model = args.model
 
     # Initialize the system parameters and symbolic functions
-    mod, dt, n, m, N, max_line_search_iters, Q, R, Q_terminal, x_target, max_ddp_iters = initialize_system(model)
+    (
+        mod,
+        dt,
+        n,
+        m,
+        N,
+        max_line_search_iters,
+        Q,
+        R,
+        Q_terminal,
+        x_target,
+        max_ddp_iters,
+    ) = initialize_system(model)
     funcs = setup_symbolic_functions(mod, dt, n, m, x_target, Q, R, Q_terminal)
 
     x_traj = np.zeros((n, N + 1))
@@ -279,11 +341,13 @@ def main(model=None):
         # ----- Forward Pass with Line Search -----
 
         fp_start = time.time()
-        x_traj, u_traj, cost, alpha = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
+        x_traj, u_traj, cost, alpha = forward_pass(
+            x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost
+        )
         fp_time = time.time() - fp_start
 
         total_time += bp_time + fp_time
-        
+
         it_history_ddp.append(iters)
         cost_history_ddp.append(cost)
 
@@ -301,14 +365,19 @@ def main(model=None):
             constraint_norm,
         )
 
+    np.save(
+        f"vectors_for_plots/{model}_cost_history_ddp.npy",
+        np.array(cost_history_ddp),
+    )
+    np.save(f"vectors_for_plots/{model}_it_history_ddp.npy", np.array(it_history_ddp))
+    np.save(
+        f"vectors_for_plots/{model}_constraint_history_ddp.npy",
+        np.array(constraint_history_ddp),
+    )
 
-    np.save("vectors_for_plots/cost_history_ddp.npy", np.array(cost_history_ddp))
-    np.save("vectors_for_plots/it_history_ddp.npy", np.array(it_history_ddp))
-    np.save("vectors_for_plots/constraint_history_ddp.npy", np.array(constraint_history_ddp))
-
-
-    print("Saved cost history, constraint history and iteration history as NumPy arrays.")
-
+    print(
+        "Saved cost history, constraint history and iteration history as NumPy arrays."
+    )
 
     # Verify the result by simulating the trajectory using the obtained control sequence
     x_check = np.zeros_like(x_traj)
@@ -329,19 +398,33 @@ def main(model=None):
     axs[0].legend()
     axs[0].grid(True)
 
-    axs[1].plot(it_history_ddp, constraint_history_ddp, label="Constraint norm", color="red")
+    axs[1].plot(
+        it_history_ddp, constraint_history_ddp, label="Constraint norm", color="red"
+    )
     axs[1].set_xlabel("Iterations")
     axs[1].set_ylabel("||h(x)||")
     axs[1].legend()
     axs[1].grid(True)
 
     axs[2].axis("off")
-    axs[2].text(0.5, 0.5, f"Total execution time:\n{total_time*1000:.2f} ms", ha="center", va="center", fontsize=12)
+    axs[2].text(
+        0.5,
+        0.5,
+        f"Total execution time:\n{total_time * 1000:.2f} ms",
+        ha="center",
+        va="center",
+        fontsize=12,
+    )
 
     axs[3].axis("off")
-    axs[3].text(0.5, 0.5, f"Constraint satisfaction:\n{constraint_norm:.2f}", ha="center", va="center", fontsize=12)
-
-
+    axs[3].text(
+        0.5,
+        0.5,
+        f"Constraint satisfaction:\n{constraint_norm:.2f}",
+        ha="center",
+        va="center",
+        fontsize=12,
+    )
 
     plt.tight_layout()
     plt.show()

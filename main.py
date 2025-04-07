@@ -1,8 +1,10 @@
-from multiprocessing import Process
 import argparse as arg
-from ec_ddp.src import ec_ddp
-import ddp
 import logging
+from multiprocessing import Process
+
+import ddp
+from ec_ddp.src import ec_ddp
+from super_plot import plot
 
 
 def run_simulation(main, model_arg):
@@ -16,7 +18,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--model", type=str, choices=["cart_pendulum", "pendubot"])
     parser.add_argument("--ddp_model", type=str, choices=["cart_pendulum", "pendubot"])
-    parser.add_argument("--ec_ddp_model", type=str, choices=["cart_pendulum", "pendubot"])
+    parser.add_argument(
+        "--ec_ddp_model", type=str, choices=["cart_pendulum", "pendubot"]
+    )
 
     args = parser.parse_args()
     if args.model is None and args.ddp_model is None and args.ec_ddp_model is None:
@@ -37,3 +41,5 @@ if __name__ == "__main__":
 
     p1.join()
     p2.join()
+
+    plot(args.model)
