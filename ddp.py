@@ -230,7 +230,7 @@ def forward_pass(x_old, u_old, k, K, N, max_line_search_iters, funcs, prev_cost)
             alpha /= 2.0  # reduce step size if cost did not decrease
 
     # If no reduction is found, return the last computed trajectories
-    return x_old, u_old, new_cost, alpha
+    return x_old, u_old, prev_cost, alpha
 
 
 def main(model=None):
@@ -266,10 +266,9 @@ def main(model=None):
 
     # Main optimization loop
 
-    iters = 0
-    it_history = []
-    cost_history = []
-    constraint_history = []
+    it_history_ddp = []
+    cost_history_ddp = []
+    constraint_history_ddp = []
 
     for iters in range(max_ddp_iters):
         # ----- Backward Pass -----
@@ -280,16 +279,17 @@ def main(model=None):
         # ----- Forward Pass with Line Search -----
 
         fp_start = time.time()
-        x_traj, u_traj, new_cost, alpha = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
+        x_traj, u_traj, cost, alpha = forward_pass(x_traj, u_traj, k, K, N, max_line_search_iters, funcs, cost)
         fp_time = time.time() - fp_start
 
         total_time += bp_time + fp_time
-        iters += 1
-        it_history.append(iters)
-        cost_history.append(new_cost)
+        
+        it_history_ddp.append(iters)
+        cost_history_ddp.append(cost)
 
+        iters += 1
         constraint_norm = np.linalg.norm(np.array(funcs["h"](x_traj[:, N])), np.inf)
-        constraint_history.append(constraint_norm)
+        constraint_history_ddp.append(constraint_norm)
         print(
             "Iteration:",
             iters,
@@ -301,10 +301,14 @@ def main(model=None):
             constraint_norm,
         )
 
-    print("Total time: ", total_time * 1000, " ms")
 
-    print("it", it_history)
-    print("cost", cost_history)
+    np.save("vectors_for_plots/cost_history_ddp.npy", np.array(cost_history_ddp))
+    np.save("vectors_for_plots/it_history_ddp.npy", np.array(it_history_ddp))
+    np.save("vectors_for_plots/constraint_history_ddp.npy", np.array(constraint_history_ddp))
+
+
+    print("Saved cost history, constraint history and iteration history as NumPy arrays.")
+
 
     # Verify the result by simulating the trajectory using the obtained control sequence
     x_check = np.zeros_like(x_traj)
@@ -319,13 +323,13 @@ def main(model=None):
     axs[0].set_title("Cost DDP")
     axs[1].set_title("Constraint Satisfaction DDP")
 
-    axs[0].plot(it_history, cost_history, label="Cost")
+    axs[0].plot(it_history_ddp, cost_history_ddp, label="Cost")
     axs[0].set_xlabel("Iterations")
     axs[0].set_ylabel("Cost")
     axs[0].legend()
     axs[0].grid(True)
 
-    axs[1].plot(it_history, constraint_history, label="Constraint norm", color="red")
+    axs[1].plot(it_history_ddp, constraint_history_ddp, label="Constraint norm", color="red")
     axs[1].set_xlabel("Iterations")
     axs[1].set_ylabel("||h(x)||")
     axs[1].legend()
@@ -336,6 +340,8 @@ def main(model=None):
 
     axs[3].axis("off")
     axs[3].text(0.5, 0.5, f"Constraint satisfaction:\n{constraint_norm:.2f}", ha="center", va="center", fontsize=12)
+
+
 
     plt.tight_layout()
     plt.show()

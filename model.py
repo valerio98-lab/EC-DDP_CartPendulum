@@ -272,8 +272,8 @@ class Pendubot(BaseSystem):
     def constraints(self, x):
         h1 = x[0] - cs.pi  # θ1 and θ2 should be equal to zero in order to constraint the Pendubot to be vertical
         h2 = x[1]
-        h3 = 0
-        h4 = 0  # READ in main for more details about constraints h3 and h4
+        h3 = x[2]
+        h4 = x[3]  # READ in main for more details about constraints h3 and h4
 
         return cs.vertcat(h1, h2, h3, h4)
 
