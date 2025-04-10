@@ -32,6 +32,6 @@ Eventually it can be executed a parallel simulation on different systems:
 python main.py --ddp_model cart_pendulum --ec_ddp_model pendubot
 ``` 
 
-##Authors:
+## Authors
 
 Valerio Belli, José del Valle Delgado, Serena Trovalusci, Leonardo Sandri
